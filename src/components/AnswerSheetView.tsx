@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { Exam } from '../types';
 import { pdfGenerator, getExamQRPayload } from '../services/pdfGenerator';
 import { storageService } from '../services/storageService';
+import { useToast } from '../services/toastContext';
 import {
   Printer,
   Download,
@@ -24,6 +25,7 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
   onClose,
 }) => {
   const settings = storageService.getSettings();
+  const { success, error } = useToast();
   const printRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -79,12 +81,15 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
     try {
       setIsGeneratingPdf(true);
       await pdfGenerator.downloadPDFFromElement(printRef.current, exam);
+      success('ดาวน์โหลด PDF สำเร็จ', 'ไฟล์กระดาษคำตอบ A4 พร้อมพิมพ์เรียบร้อย');
     } catch (err) {
       console.warn('DOM PDF failed, falling back to direct generator', err);
       try {
         await pdfGenerator.downloadPDF(exam, settings.organizationName, qrCodeUrl);
-      } catch (fallbackErr) {
+        success('ดาวน์โหลด PDF สำเร็จ', 'ไฟล์กระดาษคำตอบ A4 พร้อมพิมพ์เรียบร้อย');
+      } catch (fallbackErr: any) {
         console.error('PDF generation error', fallbackErr);
+        error('ดาวน์โหลด PDF ไม่สำเร็จ', 'กรุณาลองกดปุ่ม "พิมพ์กระดาษคำตอบ" แล้วเลือก Save as PDF แทน');
       }
     } finally {
       setIsGeneratingPdf(false);

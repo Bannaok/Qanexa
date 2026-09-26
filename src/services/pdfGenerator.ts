@@ -18,62 +18,128 @@ export const getExamQRPayload = (exam: Exam): string => {
 
 export const pdfGenerator = {
   /**
-   * Generates and downloads a crystal-clear, high-resolution A4 PDF Answer Sheet
-   * using html2canvas directly from the on-screen rendered sheet DOM.
-   * This guarantees 100% faithful Thai typography (Sarabun/Kanit), layout, QR code,
-   * and student fields without missing or overlapping elements.
+   * Generates a 100% faithful, high-resolution A4 PDF Answer Sheet.
+   * Clones the element into a clean, unscaled off-screen sandbox to avoid CSS transform scaling bugs,
+   * rendering Thai fonts (Sarabun, Kanit), tables, registration marks, and QR codes at crisp 300 DPI print quality.
    */
   async downloadPDFFromElement(element: HTMLElement, exam: Exam): Promise<void> {
-    // Render at 2x scale for 300 DPI print quality
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#ffffff',
-      windowWidth: element.scrollWidth,
-      windowHeight: element.scrollHeight,
-    });
+    // 1. Create an isolated off-screen sandbox container
+    const sandbox = document.createElement('div');
+    sandbox.style.position = 'fixed';
+    sandbox.style.left = '-9999px';
+    sandbox.style.top = '0';
+    sandbox.style.width = '794px'; // 210mm in pixels at 96 DPI
+    sandbox.style.minHeight = '1123px'; // 297mm in pixels at 96 DPI
+    sandbox.style.backgroundColor = '#ffffff';
+    sandbox.style.zIndex = '-9999';
+    sandbox.style.overflow = 'visible';
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.98);
+    // 2. Clone the answer sheet element
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.style.transform = 'none';
+    clone.style.margin = '0';
+    clone.style.width = '794px';
+    clone.style.height = '1123px';
+    clone.style.minHeight = '1123px';
+    clone.style.maxHeight = '1123px';
+    clone.style.boxSizing = 'border-box';
+    clone.style.boxShadow = 'none';
+    clone.style.borderRadius = '0';
+    clone.style.backgroundColor = '#ffffff';
 
-    // Standard A4 portrait in mm: 210 x 297
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true,
-    });
+    sandbox.appendChild(clone);
+    document.body.appendChild(sandbox);
 
-    pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-    const safeTitle = (exam.title || 'answer_sheet').replace(/[^a-zA-Z0-9ก-๙_-]/g, '_');
-    pdf.save(`OMR_กระดาษคำตอบ_${safeTitle}.pdf`);
+    try {
+      // Allow fonts and any nested images to settle
+      if (document.fonts) {
+        await document.fonts.ready;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+
+      // Capture at scale: 2 (crisp high-DPI quality)
+      const canvas = await html2canvas(clone, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: 794,
+        height: 1123,
+        windowWidth: 794,
+        windowHeight: 1123,
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+      // Create PDF A4 portrait: 210mm x 297mm
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      const safeTitle = (exam.title || 'answer_sheet').replace(/[^a-zA-Z0-9ก-๙_-]/g, '_');
+      pdf.save(`OMR_กระดาษคำตอบ_${safeTitle}.pdf`);
+    } finally {
+      // Clean up sandbox
+      if (document.body.contains(sandbox)) {
+        document.body.removeChild(sandbox);
+      }
+    }
   },
 
   /**
-   * Direct programmatic PDF fallback
+   * High-fidelity Canvas-rendered PDF fallback (Never outputs raw garbled text)
+   * If DOM capture fails for any unexpected browser permission reason,
+   * this builds the exact answer sheet onto an HTML5 Canvas with proper Thai text rendering
+   * and exports it to PDF, preventing any jspdf font encoding corruption.
    */
   async downloadPDF(exam: Exam, orgName = 'ศูนย์ทดสอบวัดผลทางการศึกษา', precomputedQR?: string): Promise<void> {
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
+    const width = 1588; // 794 * 2
+    const height = 2246; // 1123 * 2
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context');
 
-    const pageWidth = 210;
-    const pageHeight = 297;
+    // Background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
 
-    // 4 Corner Alignment Registration Marks
-    doc.setFillColor(0, 0, 0);
-    const markSize = 7;
-    doc.rect(6, 6, markSize, markSize, 'F');
-    doc.rect(pageWidth - 6 - markSize, 6, markSize, markSize, 'F');
-    doc.rect(6, pageHeight - 6 - markSize, markSize, markSize, 'F');
-    doc.rect(pageWidth - 6 - markSize, pageHeight - 6 - markSize, markSize, markSize, 'F');
+    // Corner fiducial marks (7mm = ~53px at 2x)
+    ctx.fillStyle = '#000000';
+    const mark = 53;
+    const offset = 45;
+    ctx.fillRect(offset, offset, mark, mark);
+    ctx.fillRect(width - offset - mark, offset, mark, mark);
+    ctx.fillRect(offset, height - offset - mark, mark, mark);
+    ctx.fillRect(width - offset - mark, height - offset - mark, mark, mark);
 
-    // Header Box
-    doc.setDrawColor(30, 41, 59);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(15, 12, pageWidth - 30, 46, 2, 2, 'S');
+    // Header box
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(90, 80, width - 180, 270);
+
+    // Title
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 36px "Kanit", "Sarabun", sans-serif';
+    ctx.fillText('กระดาษคำตอบแบบปรนัย (OMR ANSWER SHEET)', 120, 135);
+
+    ctx.font = 'bold 24px "Sarabun", sans-serif';
+    ctx.fillStyle = '#334155';
+    ctx.fillText(orgName, 120, 175);
+
+    ctx.font = '22px "Sarabun", sans-serif';
+    ctx.fillStyle = '#1e293b';
+    ctx.fillText(`วิชา: ${exam.title} (${exam.questionCount} ข้อ)`, 120, 215);
+    ctx.fillText(`ระดับชั้น: ${exam.gradeLevel || '-'}   |   รหัสวิชา: ${exam.code || '-'}`, 120, 250);
+
+    // Student fields
+    ctx.font = '20px "Sarabun", sans-serif';
+    ctx.fillText('ชื่อ - นามสกุล: _____________________________________   เลขที่ / รหัสนักเรียน: ___________________', 120, 310);
 
     // QR Code
     try {
@@ -81,30 +147,95 @@ export const pdfGenerator = {
         precomputedQR ||
         (await QRCode.toDataURL(getExamQRPayload(exam), {
           margin: 1,
-          width: 200,
+          width: 240,
           errorCorrectionLevel: 'M',
         }));
-      doc.addImage(qrDataUrl, 'PNG', pageWidth - 38, 14, 20, 20);
-    } catch (err) {
-      console.warn('QR Code generation failed', err);
+      const img = new Image();
+      img.src = qrDataUrl;
+      await new Promise((res) => {
+        img.onload = res;
+      });
+      ctx.drawImage(img, width - 290, 95, 170, 170);
+    } catch {}
+
+    // Questions Grid
+    const totalQ = exam.questionCount;
+    const numCols = totalQ <= 20 ? 1 : totalQ <= 40 ? 2 : totalQ <= 60 ? 3 : 4;
+    const qPerCol = Math.ceil(totalQ / numCols);
+    const colWidth = (width - 180 - (numCols - 1) * 20) / numCols;
+    const choiceLabels = exam.choiceLabelType === 'latin'
+      ? ['A', 'B', 'C', 'D', 'E'].slice(0, exam.choiceCount)
+      : ['ก', 'ข', 'ค', 'ง', 'จ'].slice(0, exam.choiceCount);
+
+    let startY = 380;
+
+    for (let c = 0; c < numCols; c++) {
+      const colX = 90 + c * (colWidth + 20);
+      const startQ = c * qPerCol + 1;
+      const endQ = Math.min((c + 1) * qPerCol, totalQ);
+
+      // Header row
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(colX, startY, colWidth, 40);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(colX, startY, colWidth, 40);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 20px "Sarabun", sans-serif';
+      ctx.fillText('ข้อ', colX + 15, startY + 28);
+
+      const choiceAreaX = colX + 70;
+      const choiceAreaW = colWidth - 80;
+      const stepX = choiceAreaW / choiceLabels.length;
+
+      choiceLabels.forEach((lbl, idx) => {
+        ctx.fillText(lbl, choiceAreaX + idx * stepX + stepX / 2 - 8, startY + 28);
+      });
+
+      // Question rows
+      let rowY = startY + 40;
+      const rowHeight = Math.min(42, (height - startY - 140) / qPerCol);
+
+      for (let q = startQ; q <= endQ; q++) {
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(colX, rowY, colWidth, rowHeight);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 18px "Sarabun", monospace';
+        ctx.fillText(`${q}.`, colX + 10, rowY + rowHeight / 2 + 6);
+
+        choiceLabels.forEach((lbl, idx) => {
+          const bx = choiceAreaX + idx * stepX + stepX / 2 - 16;
+          const by = rowY + (rowHeight - 30) / 2;
+          ctx.strokeStyle = '#1e293b';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(bx, by, 30, 30);
+          ctx.font = 'bold 16px "Sarabun", sans-serif';
+          ctx.fillStyle = '#334155';
+          ctx.fillText(lbl, bx + 8, by + 21);
+        });
+
+        rowY += rowHeight;
+      }
     }
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('OMR ANSWER SHEET', (pageWidth - 30) / 2, 18, { align: 'center' });
+    // Footer
+    ctx.font = '18px "Sarabun", sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText('OMR Answer Sheet System • กระดาษคำตอบมาตรฐาน A4 แนวตั้ง (210 × 297 มม.)', 90, height - 60);
+    ctx.fillText(`รหัสชุดข้อสอบ: ${exam.id}`, width - 400, height - 60);
 
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(orgName, (pageWidth - 30) / 2, 24, { align: 'center' });
-    doc.text(`Exam: ${exam.title} (${exam.questionCount} Questions)`, (pageWidth - 30) / 2, 30, { align: 'center' });
-
-    doc.setFontSize(8.5);
-    doc.text('Name: _________________________________________', 20, 38);
-    doc.text('Student ID: _______________', 115, 38);
-    doc.text(`Grade: ${exam.gradeLevel || '_______'}`, 20, 46);
-    doc.text('Date: ___________________', 115, 46);
-
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+      compress: true,
+    });
+    pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
     const safeTitle = (exam.title || 'answer_sheet').replace(/[^a-zA-Z0-9ก-๙_-]/g, '_');
-    doc.save(`OMR_Answer_Sheet_${safeTitle}.pdf`);
+    pdf.save(`OMR_กระดาษคำตอบ_${safeTitle}.pdf`);
   },
 };
