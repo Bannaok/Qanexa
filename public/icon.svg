@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Background with squircle rounded corners -->
+  <rect width="512" height="512" rx="112" fill="url(#grad)" />
+
+  <!-- Sheet of Paper / Exam Document -->
+  <g filter="url(#shadow)">
+    <rect x="120" y="96" width="272" height="320" rx="24" fill="#FFFFFF" />
+    
+    <!-- Top Header Bar -->
+    <rect x="152" y="136" width="130" height="20" rx="8" fill="#4F46E5" />
+    <rect x="312" y="136" width="48" height="20" rx="8" fill="#E2E8F0" />
+    
+    <!-- OMR Bubble Rows -->
+    <!-- Row 1 -->
+    <circle cx="170" cy="195" r="14" fill="#E2E8F0" />
+    <circle cx="215" cy="195" r="14" fill="#4F46E5" />
+    <circle cx="260" cy="195" r="14" fill="#E2E8F0" />
+    <circle cx="305" cy="195" r="14" fill="#E2E8F0" />
+    <path d="M335 195 L345 205 L360 185" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Row 2 -->
+    <circle cx="170" cy="245" r="14" fill="#E2E8F0" />
+    <circle cx="215" cy="245" r="14" fill="#E2E8F0" />
+    <circle cx="260" cy="245" r="14" fill="#4F46E5" />
+    <circle cx="305" cy="245" r="14" fill="#E2E8F0" />
+    <path d="M335 245 L345 255 L360 235" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Row 3 -->
+    <circle cx="170" cy="295" r="14" fill="#4F46E5" />
+    <circle cx="215" cy="295" r="14" fill="#E2E8F0" />
+    <circle cx="260" cy="295" r="14" fill="#E2E8F0" />
+    <circle cx="305" cy="295" r="14" fill="#E2E8F0" />
+    <path d="M335 295 L345 305 L360 285" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Row 4 -->
+    <circle cx="170" cy="345" r="14" fill="#E2E8F0" />
+    <circle cx="215" cy="345" r="14" fill="#E2E8F0" />
+    <circle cx="260" cy="345" r="14" fill="#E2E8F0" />
+    <circle cx="305" cy="345" r="14" fill="#4F46E5" />
+    <path d="M335 345 L345 355 L360 335" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Scan Beam / Laser Line -->
+    <line x1="120" y1="270" x2="392" y2="270" stroke="#F59E0B" stroke-width="6" stroke-linecap="round" />
+    <polygon points="380,264 394,270 380,276" fill="#F59E0B" />
+  </g>
+</svg>

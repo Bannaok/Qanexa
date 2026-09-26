@@ -1,0 +1,10 @@
+{
+  "name": "ExamScan OMR Pro - ระบบสร้างและสแกนกระดาษคำตอบปรนัย",
+  "description": "ระบบสร้างและสแกนกระดาษคำตอบปรนัยอัจฉริยะ (Multiple-Choice Exam Scanner System) พร้อมเครื่องตรวจข้อสอบ OMR ตรวจจับอัตโนมัติ สรุปคะแนน และจัดการสิทธิ์ผู้ใช้งาน",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
