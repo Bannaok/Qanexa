@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChoiceCount, ChoiceLabelType, Exam } from '../types';
 import { storageService } from '../services/storageService';
 import { useAuth } from '../services/authContext';
@@ -8,6 +8,8 @@ import {
   FileCheck,
   Check,
   CheckCircle2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface CreateExamModalProps {
@@ -15,6 +17,7 @@ interface CreateExamModalProps {
   onClose: () => void;
   onExamCreated: (newExam: Exam) => void;
   editingExam?: Exam | null;
+  examToEdit?: Exam | null;
 }
 
 const GRADE_LEVELS = [
@@ -34,29 +37,71 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
   onClose,
   onExamCreated,
   editingExam,
+  examToEdit,
 }) => {
   const { currentUser } = useAuth();
-  const { success, error } = useToast();
+  const { success, error, info } = useToast();
 
-  const [title, setTitle] = useState(editingExam?.title || '');
-  const [gradeLevel, setGradeLevel] = useState<string>(
-    editingExam?.gradeLevel || 'ชั้นประถมศึกษาปีที่ 1'
-  );
-  const [description, setDescription] = useState(editingExam?.description || '');
-  const [questionCount, setQuestionCount] = useState<number>(editingExam?.questionCount || 20);
-  const [choiceCount, setChoiceCount] = useState<ChoiceCount>(editingExam?.choiceCount || 4);
-  const [choiceLabelType, setChoiceLabelType] = useState<ChoiceLabelType>(editingExam?.choiceLabelType || 'thai');
-  const [passPercentage, setPassPercentage] = useState<number>(editingExam?.passPercentage || 50);
+  const activeExam = editingExam || examToEdit;
+
+  const [title, setTitle] = useState('');
+  const [gradeLevel, setGradeLevel] = useState<string>('ชั้นประถมศึกษาปีที่ 1');
+  const [description, setDescription] = useState('');
+  const [questionCount, setQuestionCount] = useState<number>(20);
+  const [choiceCount, setChoiceCount] = useState<ChoiceCount>(4);
+  const [choiceLabelType, setChoiceLabelType] = useState<ChoiceLabelType>('thai');
+  const [passPercentage, setPassPercentage] = useState<number>(50);
 
   // Answer Key: questionNumber (1-based) -> choiceIndex (0-based)
-  const [answerKey, setAnswerKey] = useState<Record<number, number>>(() => {
-    if (editingExam?.answerKey) return { ...editingExam.answerKey };
-    const keys: Record<number, number> = {};
-    for (let i = 1; i <= (editingExam?.questionCount || 20); i++) {
-      keys[i] = (i - 1) % (editingExam?.choiceCount || 4);
+  const [answerKey, setAnswerKey] = useState<Record<number, number>>({});
+
+  // Lock answer key when viewing/editing existing exam to prevent accidental changes
+  // User must click Eye icon (ไอคอนตา) to unlock and edit answers!
+  const [isAnswerKeyLocked, setIsAnswerKeyLocked] = useState<boolean>(true);
+
+  // Synchronize state when modal opens or activeExam changes
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (activeExam) {
+      // 1. STRICTLY preserve the saved exam's data!
+      setTitle(activeExam.title || '');
+      setGradeLevel(activeExam.gradeLevel || 'ชั้นประถมศึกษาปีที่ 1');
+      setDescription(activeExam.description || '');
+      setQuestionCount(activeExam.questionCount || 20);
+      setChoiceCount(activeExam.choiceCount || 4);
+      setChoiceLabelType(activeExam.choiceLabelType || 'thai');
+      setPassPercentage(activeExam.passPercentage || 50);
+
+      // Load EXACT answer key saved in the exam
+      if (activeExam.answerKey && Object.keys(activeExam.answerKey).length > 0) {
+        setAnswerKey({ ...activeExam.answerKey });
+      } else {
+        const defaultKeys: Record<number, number> = {};
+        for (let i = 1; i <= (activeExam.questionCount || 20); i++) {
+          defaultKeys[i] = 0;
+        }
+        setAnswerKey(defaultKeys);
+      }
+      // Lock answer key by default so user doesn't accidentally change answers
+      setIsAnswerKeyLocked(true);
+    } else {
+      // Creating a new exam from scratch
+      setTitle('');
+      setGradeLevel('ชั้นประถมศึกษาปีที่ 1');
+      setDescription('');
+      setQuestionCount(20);
+      setChoiceCount(4);
+      setChoiceLabelType('thai');
+      setPassPercentage(50);
+      const defaultKeys: Record<number, number> = {};
+      for (let i = 1; i <= 20; i++) {
+        defaultKeys[i] = 0;
+      }
+      setAnswerKey(defaultKeys);
+      setIsAnswerKeyLocked(false);
     }
-    return keys;
-  });
+  }, [isOpen, activeExam]);
 
   if (!isOpen) return null;
 
@@ -73,7 +118,7 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
       const updated = { ...prev };
       for (let i = 1; i <= count; i++) {
         if (updated[i] === undefined || updated[i] >= choiceCount) {
-          updated[i] = (i - 1) % choiceCount;
+          updated[i] = 0;
         }
       }
       Object.keys(updated).forEach((k) => {
@@ -98,6 +143,14 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
   };
 
   const handleSelectChoice = (questionNum: number, choiceIndex: number) => {
+    if (activeExam && isAnswerKeyLocked) {
+      info(
+        'โหมดดูเฉลย (ป้องกันการเปลี่ยนโดยไม่ตั้งใจ)',
+        'คลิกที่ปุ่มไอคอนรูปตา (👁️) ทางด้านขวาบน เพื่อปลดล็อคและแก้ไขเฉลยข้อสอบ'
+      );
+      return;
+    }
+
     setAnswerKey((prev) => ({
       ...prev,
       [questionNum]: choiceIndex,
@@ -126,26 +179,26 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
     }
 
     const examData: Exam = {
-      id: editingExam?.id || 'exam_' + Math.random().toString(36).substring(2, 9),
+      id: activeExam?.id || 'exam_' + Math.random().toString(36).substring(2, 9),
       title: title.trim(),
       gradeLevel,
-      code: editingExam?.code || '',
+      code: activeExam?.code || '',
       description: description.trim(),
       questionCount,
       choiceCount,
       choiceLabelType,
       passPercentage,
       answerKey,
-      createdBy: editingExam?.createdBy || currentUser?.email || 'admin',
-      creatorName: editingExam?.creatorName || currentUser?.displayName || 'Admin',
-      createdAt: editingExam?.createdAt || new Date().toISOString(),
+      createdBy: activeExam?.createdBy || currentUser?.email || 'admin',
+      creatorName: activeExam?.creatorName || currentUser?.displayName || 'Admin',
+      createdAt: activeExam?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     storageService.saveExam(examData);
     onExamCreated(examData);
     success(
-      editingExam ? 'แก้ไขชุดกระดาษคำตอบเรียบร้อย' : 'สร้างชุดกระดาษคำตอบสำเร็จ',
+      activeExam ? 'แก้ไขชุดกระดาษคำตอบเรียบร้อย' : 'สร้างชุดกระดาษคำตอบสำเร็จ',
       `วิชา ${examData.title} • ${examData.gradeLevel} (${examData.questionCount} ข้อ)`
     );
     onClose();
@@ -171,7 +224,7 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
             </div>
             <div>
               <h3 className="font-heading font-bold text-lg text-slate-800">
-                {editingExam ? 'แก้ไขชุดกระดาษคำตอบ' : 'สร้างชุดกระดาษคำตอบ'}
+                {activeExam ? 'แก้ไขชุดกระดาษคำตอบ' : 'สร้างชุดกระดาษคำตอบ'}
               </h3>
               <p className="text-xs text-slate-500">
                 กำหนดชื่อวิชา ระดับชั้น จำนวนข้อ ตัวเลือก และบันทึกเฉลยข้อสอบ (Answer Key)
@@ -188,7 +241,7 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-6 flex-1 bg-white">
-          {/* Section 1: ชื่อวิชา และ ระดับชั้น (ป.1 - ม.3) อยู่ในบรรทัดเดียวกันตาม แก้1 */}
+          {/* Section 1: ชื่อวิชา และ ระดับชั้น (ป.1 - ม.3) */}
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {/* ชื่อวิชา */}
@@ -325,18 +378,53 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
             </div>
           </div>
 
-          {/* Section 3: เฉลยข้อสอบ (3 Column เรียงข้อ 1, 2, 3... ลงมาตามแก้2 และ เอาออกปุ่มสุ่ม/เรียงวนตามแก้3) */}
+          {/* Section 3: เฉลยข้อสอบ พร้อมปุ่มไอคอนตา ปลดล็อค/ดูเฉลย */}
           <div>
-            <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
               <div>
                 <h4 className="font-heading font-semibold text-slate-800 text-sm flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  กำหนดเฉลยข้อสอบ (Answer Key Matrix)
+                  <span>กำหนดเฉลยข้อสอบ (Answer Key Matrix)</span>
                 </h4>
                 <p className="text-xs text-slate-500">
-                  คลิกเลือกตัวเลือกที่ถูกต้องของแต่ละข้อ (เรียงข้อลงมา 3 คอลัมน์)
+                  {activeExam && isAnswerKeyLocked
+                    ? '🔒 โหมดดูเฉลย (ป้องกันการเปลี่ยนโดยไม่ตั้งใจ) • กดที่ไอคอนตาเพื่อปลดล็อคแก้ไข'
+                    : '🔓 โหมดแก้ไขเฉลย • คลิกเลือกตัวเลือกที่ถูกต้องของแต่ละข้อได้ทันที'}
                 </p>
               </div>
+
+              {/* Eye Icon Toggle Button */}
+              {activeExam && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAnswerKeyLocked(!isAnswerKeyLocked);
+                    if (isAnswerKeyLocked) {
+                      success('ปลดล็อคเฉลยเรียบร้อย', 'คุณสามารถคลิกเปลี่ยนตัวเลือกข้อสอบได้แล้ว');
+                    } else {
+                      info('ล็อคเฉลยเรียบร้อย', 'บันทึกสถานะล็อคเพื่อป้องกันการกดเปลี่ยนเฉลยโดยไม่ได้ตั้งใจ');
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-2xs shrink-0 ${
+                    isAnswerKeyLocked
+                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                  }`}
+                  title={isAnswerKeyLocked ? 'กดไอคอนตาเพื่อปลดล็อคและเปลี่ยนเฉลย' : 'กดเพื่อล็อคเฉลย'}
+                >
+                  {isAnswerKeyLocked ? (
+                    <>
+                      <Eye className="w-4 h-4 text-amber-700" />
+                      <span>ดูเฉลยอยู่ (กดไอคอนตาเพื่อเปลี่ยน)</span>
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="w-4 h-4 text-emerald-700" />
+                      <span>กำลังแก้ไข (กดเพื่อล็อคเฉลย)</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
             {/* 3 Columns Grid: ข้อเรียงลงมาตามแนวตั้ง */}
@@ -410,7 +498,7 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
                 className="flex items-center gap-1.5 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-sm transition-colors cursor-pointer"
               >
                 <Check className="w-4 h-4" />
-                <span>{editingExam ? 'บันทึกการแก้ไข' : 'สร้างชุดกระดาษคำตอบ'}</span>
+                <span>{activeExam ? 'บันทึกการแก้ไข' : 'สร้างชุดกระดาษคำตอบ'}</span>
               </button>
             </div>
           </div>

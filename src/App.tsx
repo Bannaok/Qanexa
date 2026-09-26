@@ -190,7 +190,6 @@ const MainAppContent: React.FC = () => {
       <LoginModal
         isOpen={isLoginOpen}
         onClose={() => setIsLoginOpen(false)}
-        appSettings={appSettings}
       />
 
       <AppSettingsModal
@@ -212,6 +211,7 @@ const MainAppContent: React.FC = () => {
           setEditingExam(null);
         }}
         onExamCreated={refreshExams}
+        editingExam={editingExam}
         examToEdit={editingExam}
       />
 
@@ -229,7 +229,6 @@ const MainAppContent: React.FC = () => {
       {activePrintExam && (
         <AnswerSheetView
           exam={activePrintExam}
-          appSettings={appSettings}
           onClose={() => setActivePrintExam(null)}
         />
       )}

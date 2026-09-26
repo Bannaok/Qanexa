@@ -252,18 +252,18 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
             <div className="absolute bottom-[6mm] left-[6mm] w-[7mm] h-[7mm] bg-black pointer-events-none" />
             <div className="absolute bottom-[6mm] right-[6mm] w-[7mm] h-[7mm] bg-black pointer-events-none" />
 
-            {/* Top Sheet Header Box (ภาษาไทยทั้งหมด ชัดเจน ครบถ้วน ไม่โดนบัง) */}
+            {/* Top Sheet Header Box (ภาษาไทยทั้งหมด ชัดเจน ตัวอักษรใหญ่ ชัดตา) */}
             <div>
-              <div className="border-2 border-slate-900 rounded-xl p-3 mb-3 bg-white">
+              <div className="border-2 border-slate-900 rounded-xl p-3.5 mb-3 bg-white">
                 <div className="flex items-start justify-between gap-3 pb-2.5 border-b-2 border-slate-800">
                   <div className="flex-1 space-y-1">
-                    <h1 className="font-heading font-black text-lg text-slate-900 tracking-wide uppercase leading-tight">
+                    <h1 className="font-heading font-black text-xl text-slate-900 tracking-wide uppercase leading-tight">
                       กระดาษคำตอบแบบปรนัย (OMR ANSWER SHEET)
                     </h1>
-                    <p className="text-xs font-bold text-slate-700">
+                    <p className="text-sm font-bold text-slate-800">
                       {settings.organizationName || 'ศูนย์ทดสอบวัดผลทางการศึกษา'}
                     </p>
-                    <div className="text-[12px] text-slate-800 font-semibold pt-0.5 leading-snug">
+                    <div className="text-[13px] text-slate-900 font-semibold pt-1 leading-snug">
                       วิชา: <strong className="text-slate-950 font-bold">{exam.title}</strong>
                       {exam.gradeLevel ? (
                         <> | ระดับชั้น / ห้องเรียน: <strong className="text-slate-950 font-bold">{exam.gradeLevel}</strong></>
@@ -283,43 +283,40 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
                         className="w-16 h-16 object-contain"
                       />
                       <span className="text-[8px] font-mono font-bold text-slate-800 uppercase tracking-tighter mt-0.5">
-                        QR ชุดข้อสอบ
+                        รหัสข้อสอบ
                       </span>
                     </div>
                   )}
                 </div>
 
-                {/* Student Information Lines (ภาษาไทยทั้งหมดตามคำขอ เห็นชัดเจน) */}
-                <div className="grid grid-cols-2 gap-y-2 gap-x-6 pt-2.5 text-xs text-slate-900 font-medium">
+                {/* Student Information Lines */}
+                <div className="grid grid-cols-2 gap-y-2.5 gap-x-6 pt-3 text-sm text-slate-900 font-medium">
                   <div className="flex items-baseline">
                     <span className="font-bold text-slate-900 shrink-0">ชื่อ - นามสกุล: </span>
-                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[14px]" />
+                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[16px]" />
                   </div>
 
                   <div className="flex items-baseline">
-                    <span className="font-bold text-slate-900 shrink-0">เลขประจำตัวนักเรียน: </span>
-                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[14px]" />
+                    <span className="font-bold text-slate-900 shrink-0">เลขประจำตัว / เลขที่: </span>
+                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[16px]" />
                   </div>
 
                   <div className="flex items-baseline">
                     <span className="font-bold text-slate-900 shrink-0">ระดับชั้น / ห้องเรียน: </span>
-                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[14px] font-bold text-slate-900 pl-1">
+                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[16px] font-bold text-slate-900 pl-1">
                       {exam.gradeLevel ? exam.gradeLevel : ''}
                     </span>
                   </div>
 
                   <div className="flex items-baseline">
-                    <span className="font-bold text-slate-900 shrink-0">วันที่ทำการสอบ: </span>
-                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[14px]" />
+                    <span className="font-bold text-slate-900 shrink-0">วันที่สอบ: </span>
+                    <span className="ml-2 flex-1 border-b border-dotted border-slate-600 min-h-[16px]" />
                   </div>
                 </div>
 
-                {/* Instruction Note */}
-                <div className="mt-2 pt-1.5 border-t border-slate-300 text-[10.5px] text-slate-700 flex items-center justify-between">
-                  <span>
-                    📌 <strong>คำแนะนำ:</strong> ทำเครื่องหมายกากบาท (X) หรือขีดเขียนลงในช่องสี่เหลี่ยม [ ] เพียงตัวเลือกเดียวต่อหนึ่งข้อ
-                  </span>
-                  <span className="font-mono text-[9px] text-slate-500">ID: {exam.id}</span>
+                {/* Instruction Note (Clean, no ID) */}
+                <div className="mt-2.5 pt-2 border-t border-slate-300 text-xs text-slate-800">
+                  📌 <strong>คำแนะนำ:</strong> ทำเครื่องหมายกากบาท (X) หรือระบายลงในช่องสี่เหลี่ยม [ ] เพียงตัวเลือกเดียวต่อหนึ่งข้อ
                 </div>
               </div>
 
@@ -345,19 +342,19 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
                       key={colIdx}
                       className="border-2 border-slate-800 rounded-lg overflow-hidden bg-white shadow-2xs"
                     >
-                      {/* Column Header */}
-                      <div className="bg-slate-200 border-b-2 border-slate-800 py-1 px-2 flex items-center justify-between text-xs font-black text-slate-900">
-                        <span className="w-8 text-center font-bold">ข้อ</span>
-                        <div className="flex-1 flex justify-around px-1 font-bold">
+                      {/* Column Header: ก ข ค ง อยู่ชิดกัน ใกล้กัน */}
+                      <div className="bg-slate-200 border-b-2 border-slate-800 py-1.5 px-2 flex items-center justify-between text-xs font-black text-slate-900">
+                        <span className="w-9 text-center font-bold text-xs">ข้อ</span>
+                        <div className="flex-1 flex justify-center items-center gap-2.5 px-1 font-bold">
                           {choiceLabels.map((lbl) => (
-                            <span key={lbl} className="w-5 text-center font-mono">
+                            <span key={lbl} className="w-[22px] text-center font-bold text-xs">
                               {lbl}
                             </span>
                           ))}
                         </div>
                       </div>
 
-                      {/* Question Rows */}
+                      {/* Question Rows: ก ข ค ง อยู่ชิดกัน ใกล้กัน */}
                       <div className="divide-y divide-slate-200">
                         {Array.from({ length: endQ - startQ + 1 }, (_, rowIdx) => {
                           const qNum = startQ + rowIdx;
@@ -366,14 +363,14 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
                               key={qNum}
                               className="py-1 px-2 flex items-center justify-between text-xs"
                             >
-                              <span className="w-8 font-mono font-bold text-slate-900 text-right pr-2">
+                              <span className="w-9 font-mono font-bold text-slate-900 text-sm text-right pr-2">
                                 {qNum}.
                               </span>
-                              <div className="flex-1 flex justify-around items-center px-1">
+                              <div className="flex-1 flex justify-center items-center gap-2.5 px-1">
                                 {choiceLabels.map((lbl) => (
                                   <div
                                     key={lbl}
-                                    className="w-[19px] h-[19px] rounded-xs border-2 border-slate-800 flex items-center justify-center text-[10px] font-mono font-bold text-slate-800 bg-white shadow-2xs"
+                                    className="w-[22px] h-[22px] rounded-xs border-2 border-slate-900 flex items-center justify-center text-xs font-mono font-bold text-slate-900 bg-white shadow-2xs"
                                   >
                                     {lbl}
                                   </div>
@@ -389,10 +386,9 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
               </div>
             </div>
 
-            {/* Bottom Footer Information */}
-            <div className="flex items-center justify-between text-[10px] text-slate-600 border-t border-slate-400 pt-1.5 mt-2">
-              <span>OMR Answer Sheet System • กระดาษคำตอบมาตรฐาน A4 แนวตั้ง (210 × 297 มม.)</span>
-              <span>รหัสชุดข้อสอบ: {exam.id}</span>
+            {/* Bottom Footer Information (Clean, no irrelevant text) */}
+            <div className="flex items-center justify-between text-xs text-slate-600 border-t border-slate-400 pt-1.5 mt-2">
+              <span>กระดาษคำตอบวิชา: {exam.title} ({exam.gradeLevel || ''})</span>
               <span className="font-semibold">หน้า 1 / 1</span>
             </div>
           </article>

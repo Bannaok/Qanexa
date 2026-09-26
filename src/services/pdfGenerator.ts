@@ -185,12 +185,14 @@ export const pdfGenerator = {
       ctx.font = 'bold 20px "Sarabun", sans-serif';
       ctx.fillText('ข้อ', colX + 15, startY + 28);
 
-      const choiceAreaX = colX + 70;
-      const choiceAreaW = colWidth - 80;
-      const stepX = choiceAreaW / choiceLabels.length;
+      const boxSize = 32;
+      const boxGap = 16;
+      const totalBoxesW = choiceLabels.length * boxSize + (choiceLabels.length - 1) * boxGap;
+      const choiceAreaStart = colX + 70 + ((colWidth - 80) - totalBoxesW) / 2;
 
       choiceLabels.forEach((lbl, idx) => {
-        ctx.fillText(lbl, choiceAreaX + idx * stepX + stepX / 2 - 8, startY + 28);
+        const bx = choiceAreaStart + idx * (boxSize + boxGap);
+        ctx.fillText(lbl, bx + boxSize / 2 - 7, startY + 28);
       });
 
       // Question rows
@@ -207,25 +209,25 @@ export const pdfGenerator = {
         ctx.fillText(`${q}.`, colX + 10, rowY + rowHeight / 2 + 6);
 
         choiceLabels.forEach((lbl, idx) => {
-          const bx = choiceAreaX + idx * stepX + stepX / 2 - 16;
-          const by = rowY + (rowHeight - 30) / 2;
-          ctx.strokeStyle = '#1e293b';
+          const bx = choiceAreaStart + idx * (boxSize + boxGap);
+          const by = rowY + (rowHeight - boxSize) / 2;
+          ctx.strokeStyle = '#0f172a';
           ctx.lineWidth = 2;
-          ctx.strokeRect(bx, by, 30, 30);
+          ctx.strokeRect(bx, by, boxSize, boxSize);
           ctx.font = 'bold 16px "Sarabun", sans-serif';
-          ctx.fillStyle = '#334155';
-          ctx.fillText(lbl, bx + 8, by + 21);
+          ctx.fillStyle = '#0f172a';
+          ctx.fillText(lbl, bx + 9, by + 22);
         });
 
         rowY += rowHeight;
       }
     }
 
-    // Footer
+    // Footer (Clean without irrelevant tech specs)
     ctx.font = '18px "Sarabun", sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.fillText('OMR Answer Sheet System • กระดาษคำตอบมาตรฐาน A4 แนวตั้ง (210 × 297 มม.)', 90, height - 60);
-    ctx.fillText(`รหัสชุดข้อสอบ: ${exam.id}`, width - 400, height - 60);
+    ctx.fillStyle = '#475569';
+    ctx.fillText(`กระดาษคำตอบวิชา: ${exam.title} (${exam.gradeLevel || ''})`, 90, height - 60);
+    ctx.fillText('หน้า 1 / 1', width - 200, height - 60);
 
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
     const pdf = new jsPDF({
