@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserProfile, UserRole, UserStatus } from '../types';
 import { storageService } from './storageService';
+import { d1SyncService } from './d1SyncService';
 import { useToast } from './toastContext';
 
 interface AuthContextType {
@@ -14,7 +15,8 @@ interface AuthContextType {
   logout: () => void;
   updateProfile: (displayName: string) => Promise<boolean>;
   changeAdminPassword: (currentPass: string, newPass: string) => Promise<{ success: boolean; message?: string }>;
-  refreshCurrentUser: () => void;
+  refreshCurrentUser: () => Promise<void>;
+  syncCloudData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,11 +25,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => storageService.getCurrentUser());
   const { success, error, info } = useToast();
 
-  useEffect(() => {
-    // Initial sync
+  const syncCloudData = useCallback(async () => {
+    const user = storageService.getCurrentUser();
+    if (!user) return;
+
+    try {
+      // 1. Sync User Profile and Approval Status from Cloudflare D1
+      if (user.role !== 'admin') {
+        const remoteUser = await d1SyncService.fetchUserByEmail(user.email);
+        if (remoteUser) {
+          setCurrentUser(remoteUser);
+          storageService.setCurrentUser(remoteUser);
+          storageService.updateUser(remoteUser);
+        }
+      }
+
+      // 2. Full Sync with D1 for user's own exams and scans (or all if admin)
+      await storageService.syncWithD1(user);
+    } catch {
+      // Offline fallback silent
+    }
+  }, []);
+
+  const refreshCurrentUser = useCallback(async () => {
     const user = storageService.getCurrentUser();
     if (user) {
-      // Refresh user from storage list to ensure status updates (like admin approval) are synced
+      if (user.role !== 'admin') {
+        try {
+          const remote = await d1SyncService.fetchUserByEmail(user.email);
+          if (remote) {
+            setCurrentUser(remote);
+            storageService.setCurrentUser(remote);
+            storageService.updateUser(remote);
+            return;
+          }
+        } catch {}
+      }
       const stored = storageService.getUserByEmail(user.email);
       if (stored) {
         setCurrentUser(stored);
@@ -36,16 +69,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const refreshCurrentUser = useCallback(() => {
-    const user = storageService.getCurrentUser();
-    if (user) {
-      const stored = storageService.getUserByEmail(user.email);
-      if (stored) {
-        setCurrentUser(stored);
-        storageService.setCurrentUser(stored);
-      }
-    }
-  }, []);
+  useEffect(() => {
+    // Initial sync on app mount
+    syncCloudData();
+
+    // Auto sync periodically every 20 seconds to catch Admin approvals or changes from other devices
+    const interval = setInterval(() => {
+      syncCloudData();
+    }, 20000);
+
+    return () => clearInterval(interval);
+  }, [syncCloudData]);
 
   const loginAsAdmin = async (id: string, password: string): Promise<{ success: boolean; message?: string }> => {
     const normalizedId = id.trim().toLowerCase();
@@ -80,6 +114,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(adminUser);
     storageService.setCurrentUser(adminUser);
     success('เข้าสู่ระบบสำเร็จ', 'ยินดีต้อนรับ ผู้ดูแลระบบ (Admin)');
+
+    // Trigger admin cloud sync
+    setTimeout(() => {
+      storageService.syncWithD1(adminUser).catch(() => {});
+    }, 100);
+
     return { success: true };
   };
 
@@ -93,42 +133,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false };
     }
 
-    let user = storageService.getUserByEmail(trimmedEmail);
+    // Try check server first so that if user was already approved from another browser, we know!
+    let remoteUser: UserProfile | null = null;
+    try {
+      remoteUser = await d1SyncService.fetchUserByEmail(trimmedEmail);
+    } catch {}
+
+    let user: UserProfile;
     let isNew = false;
 
-    if (!user) {
-      // New user registered with Google -> Default status is PENDING approval
-      isNew = true;
+    if (remoteUser) {
       user = {
-        id: 'user_' + Math.random().toString(36).substring(2, 10),
-        email: trimmedEmail,
-        displayName: displayName || trimmedEmail.split('@')[0],
-        role: 'member',
-        status: 'pending', // Pending Admin approval!
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName || trimmedEmail)}`,
-        createdAt: new Date().toISOString(),
+        ...remoteUser,
         lastLoginAt: new Date().toISOString(),
-        storageBytes: 0,
+        displayName: displayName || remoteUser.displayName,
       };
       storageService.updateUser(user);
     } else {
-      user.lastLoginAt = new Date().toISOString();
-      if (displayName && user.displayName === user.email.split('@')[0]) {
-        user.displayName = displayName;
+      let existingLocal = storageService.getUserByEmail(trimmedEmail);
+      if (!existingLocal) {
+        // New user registered with Google -> Default status is PENDING approval
+        isNew = true;
+        user = {
+          id: 'user_' + Math.random().toString(36).substring(2, 10),
+          email: trimmedEmail,
+          displayName: displayName || trimmedEmail.split('@')[0],
+          role: 'member',
+          status: 'pending', // Pending Admin approval!
+          avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName || trimmedEmail)}`,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          storageBytes: 0,
+        };
+        storageService.updateUser(user);
+      } else {
+        user = {
+          ...existingLocal,
+          lastLoginAt: new Date().toISOString(),
+          displayName: displayName || existingLocal.displayName,
+        };
+        storageService.updateUser(user);
       }
-      storageService.updateUser(user);
     }
 
     setCurrentUser(user);
     storageService.setCurrentUser(user);
 
+    // Sync cloud state for this user
+    storageService.syncWithD1(user).catch(() => {});
+
     if (user.status === 'pending') {
       info(
         'บัญชีของคุณอยู่ระหว่างรอการอนุมัติ',
-        'เจ้าหน้าที่/ผู้ดูแลระบบ (Admin) ต้องอนุมัติสิทธิ์ก่อนเริ่มสร้างหรือสแกนข้อสอบ'
+        'ผู้ดูแลระบบ (Admin) ต้องอนุมัติสิทธิ์ก่อนเริ่มสร้างหรือสแกนข้อสอบ (ระบบจะซิงค์ให้อัตโนมัติเมื่อได้รับการอนุมัติ)'
       );
     } else if (user.status === 'approved') {
       success('เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับ ${user.displayName}`);
+    } else if (user.status === 'rejected') {
+      error('บัญชีถูกระงับสิทธิ์', 'บัญชีนี้ถูกปฏิเสธหรือระงับการเข้าใช้งานโดยผู้ดูแลระบบ');
     }
 
     return {
@@ -193,6 +255,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateProfile,
         changeAdminPassword,
         refreshCurrentUser,
+        syncCloudData,
       }}
     >
       {children}

@@ -233,8 +233,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       notes: notes.trim(),
     };
 
-    const existingResults = storageService.getScanResults();
-    storageService.saveScanResults([newResult, ...existingResults]);
+    storageService.addScanResult(newResult);
     onScanSaved(newResult);
     success(
       'บันทึกผลการตรวจเรียบร้อย',

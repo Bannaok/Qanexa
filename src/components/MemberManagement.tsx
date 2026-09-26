@@ -32,36 +32,50 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({ onClose }) =
   const [newDisplayNameInput, setNewDisplayNameInput] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
-  const loadUsers = () => {
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const loadUsers = async () => {
+    // 1. Load local immediate
     const list = storageService.getUsers();
     setUsers(list);
+
+    // 2. Fetch fresh from Cloudflare D1
+    setIsSyncing(true);
+    try {
+      await storageService.syncWithD1(currentUser);
+      const updated = storageService.getUsers();
+      setUsers(updated);
+    } catch {
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   useEffect(() => {
     loadUsers();
   }, []);
 
-  const handleUpdateStatus = (user: UserProfile, newStatus: UserStatus) => {
+  const handleUpdateStatus = async (user: UserProfile, newStatus: UserStatus) => {
     const updated: UserProfile = { ...user, status: newStatus };
     storageService.updateUser(updated);
-    loadUsers();
+    setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)));
 
     if (newStatus === 'approved') {
-      success('อนุมัติสิทธิ์การใช้งานสำเร็จ', `อนุญาตให้ ${user.email} เข้าใช้งานระบบเรียบร้อย`);
+      success('อนุมัติสิทธิ์การใช้งานสำเร็จ', `อนุญาตให้ ${user.email} เข้าใช้งานระบบเรียบร้อย (ซิงค์ไปยังทุกเครื่องทันที)`);
     } else if (newStatus === 'rejected') {
-      warning('ปฏิเสธสิทธิ์การใช้งาน', `ปฏิเสธการเข้าถึงของ ${user.email}`);
+      warning('ระงับสิทธิ์การใช้งาน', `ระงับการเข้าถึงของ ${user.email} (ซิงค์ไปยังทุกเครื่องทันที)`);
     }
   };
 
-  const handleDeleteUser = (user: UserProfile) => {
+  const handleDeleteUser = async (user: UserProfile) => {
     if (user.role === 'admin' && user.id === 'admin_root') {
       error('ไม่สามารถลบ Root Admin ได้');
       return;
     }
     if (confirm(`คุณต้องการลบผู้ใช้งาน ${user.email} ออกจากระบบอย่างถาวรหรือไม่?`)) {
       storageService.deleteUser(user.id);
-      loadUsers();
-      info('ลบผู้ใช้งานเรียบร้อยแล้ว');
+      setUsers((prev) => prev.filter((u) => u.id !== user.id));
+      info('ลบผู้ใช้งานเรียบร้อยแล้ว (ซิงค์ไปยังคลาวด์เรียบร้อย)');
     }
   };
 

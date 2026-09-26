@@ -32,6 +32,7 @@ const INITIAL_EXAMS: Exam[] = [
     id: 'exam-science-01',
     title: 'วิทยาศาสตร์และเทคโนโลยี ม.3 (ปลายภาคเรียนที่ 1)',
     code: 'SCI-301',
+    gradeLevel: 'ชั้นมัธยมศึกษาปีที่ 3',
     description: 'แบบทดสอบปรนัย 20 ข้อ ประเมินมาตรฐาน ว 2.1 และ ว 2.3',
     questionCount: 20,
     choiceCount: 4,
@@ -51,6 +52,7 @@ const INITIAL_EXAMS: Exam[] = [
     id: 'exam-math-02',
     title: 'คณิตศาสตร์พื้นฐาน ม.4 (หน่วยการเรียนรู้ที่ 1-3)',
     code: 'MATH-401',
+    gradeLevel: 'ชั้นมัธยมศึกษาปีที่ 4',
     description: 'แบบทดสอบปรนัย 30 ข้อ 5 ตัวเลือก (ก-จ)',
     questionCount: 30,
     choiceCount: 5,
@@ -153,18 +155,29 @@ export const storageService = {
 
   updateUser(updated: UserProfile): void {
     const users = this.getUsers();
-    const index = users.findIndex((u) => u.id === updated.id);
+    const index = users.findIndex((u) => u.id === updated.id || u.email.toLowerCase() === updated.email.toLowerCase());
     if (index >= 0) {
-      users[index] = updated;
+      users[index] = { ...users[index], ...updated };
     } else {
       users.push(updated);
     }
     this.saveUsers(users);
+
+    // If current logged-in user is updated, keep session in sync
+    const current = this.getCurrentUser();
+    if (current && (current.id === updated.id || current.email.toLowerCase() === updated.email.toLowerCase())) {
+      this.setCurrentUser({ ...current, ...updated });
+    }
+
+    // Background sync to Cloudflare D1
+    d1SyncService.saveUser(updated).catch(() => {});
   },
 
   deleteUser(userId: string): void {
     const users = this.getUsers().filter((u) => u.id !== userId);
     this.saveUsers(users);
+    // Background sync to Cloudflare D1
+    d1SyncService.deleteUser(userId).catch(() => {});
   },
 
   // Current session user
@@ -186,13 +199,40 @@ export const storageService = {
     }
   },
 
-  // Exams
-  getExams(): Exam[] {
+  // Exams with User-Isolation:
+  // - Admin can see all exams
+  // - Teachers see their own created exams (and default starter exams)
+  getExams(currentUser?: UserProfile | null): Exam[] {
     const raw = localStorage.getItem(EXAMS_KEY);
+    let allExams: Exam[] = [];
     if (!raw) {
+      allExams = INITIAL_EXAMS;
       localStorage.setItem(EXAMS_KEY, JSON.stringify(INITIAL_EXAMS));
-      return INITIAL_EXAMS;
+    } else {
+      try {
+        allExams = JSON.parse(raw);
+      } catch {
+        allExams = INITIAL_EXAMS;
+      }
     }
+
+    if (!currentUser) return allExams;
+    if (currentUser.role === 'admin') return allExams;
+
+    const email = currentUser.email.toLowerCase();
+    return allExams.filter((e) => {
+      // User created this exam OR it's a sample system exam
+      return (
+        (e.createdBy && e.createdBy.toLowerCase() === email) ||
+        e.createdBy === 'admin@system.local' ||
+        e.id.startsWith('exam-')
+      );
+    });
+  },
+
+  getAllExamsRaw(): Exam[] {
+    const raw = localStorage.getItem(EXAMS_KEY);
+    if (!raw) return INITIAL_EXAMS;
     try {
       return JSON.parse(raw);
     } catch {
@@ -205,11 +245,11 @@ export const storageService = {
   },
 
   getExamById(id: string): Exam | undefined {
-    return this.getExams().find((e) => e.id === id);
+    return this.getAllExamsRaw().find((e) => e.id === id);
   },
 
   saveExam(exam: Exam): void {
-    const exams = this.getExams();
+    const exams = this.getAllExamsRaw();
     const idx = exams.findIndex((e) => e.id === exam.id);
     if (idx >= 0) {
       exams[idx] = exam;
@@ -222,17 +262,28 @@ export const storageService = {
   },
 
   deleteExam(id: string): void {
-    const exams = this.getExams().filter((e) => e.id !== id);
+    const exams = this.getAllExamsRaw().filter((e) => e.id !== id);
     this.saveExams(exams);
     // Also remove scan results for this exam
-    const results = this.getScanResults().filter((r) => r.examId !== id);
+    const results = this.getAllScanResultsRaw().filter((r) => r.examId !== id);
     this.saveScanResults(results);
     // Background sync to Cloudflare D1
     d1SyncService.deleteExam(id).catch(() => {});
   },
 
-  // Scan Results
-  getScanResults(): ScanResult[] {
+  // Scan Results with User-Isolation:
+  // - Admin can see all scans
+  // - Teachers only see their own scans
+  getScanResults(currentUser?: UserProfile | null): ScanResult[] {
+    const all = this.getAllScanResultsRaw();
+    if (!currentUser) return all;
+    if (currentUser.role === 'admin') return all;
+
+    const email = currentUser.email.toLowerCase();
+    return all.filter((r) => r.scannedByEmail && r.scannedByEmail.toLowerCase() === email);
+  },
+
+  getAllScanResultsRaw(): ScanResult[] {
     const raw = localStorage.getItem(SCAN_RESULTS_KEY);
     if (!raw) return [];
     try {
@@ -247,7 +298,7 @@ export const storageService = {
   },
 
   addScanResult(result: ScanResult): void {
-    const results = this.getScanResults();
+    const results = this.getAllScanResultsRaw();
     results.unshift(result);
     this.saveScanResults(results);
 
@@ -259,7 +310,7 @@ export const storageService = {
   },
 
   deleteScanResult(resultId: string): void {
-    const results = this.getScanResults();
+    const results = this.getAllScanResultsRaw();
     const target = results.find((r) => r.id === resultId);
     const updated = results.filter((r) => r.id !== resultId);
     this.saveScanResults(updated);
@@ -267,39 +318,89 @@ export const storageService = {
     if (target) {
       this.recalculateUserStorage(target.scannedByEmail);
     }
+    // Background sync to Cloudflare D1
+    d1SyncService.deleteScanResult(resultId).catch(() => {});
   },
 
   /**
-   * Syncs local storage with Cloudflare D1 if online & connected
+   * Syncs local storage with Cloudflare D1 across any device or browser:
+   * 1. Syncs current user status (e.g. if Admin approved/banned/deleted the user)
+   * 2. Syncs Exams: teacher's own exams, or all exams if Admin
+   * 3. Syncs Scans: teacher's own scans, or all scans if Admin
+   * 4. Syncs Settings
+   * 5. If Admin, syncs all registered members list
    */
-  async syncWithD1(): Promise<{ success: boolean; message: string }> {
+  async syncWithD1(currentUser?: UserProfile | null): Promise<{ success: boolean; message: string }> {
     try {
       const conn = await d1SyncService.checkConnection();
       if (!conn.isAvailable) {
         return { success: false, message: conn.message };
       }
 
-      // Fetch exams from D1
-      const remoteExams = await d1SyncService.fetchExams();
-      if (remoteExams && remoteExams.length > 0) {
-        this.saveExams(remoteExams);
+      const activeUser = currentUser || this.getCurrentUser();
+
+      // 1. Sync User profile & Admin approval status from server
+      if (activeUser && activeUser.email) {
+        const remoteUser = await d1SyncService.fetchUserByEmail(activeUser.email);
+        if (remoteUser) {
+          this.updateUser(remoteUser);
+        } else {
+          // Push local user to server
+          await d1SyncService.saveUser(activeUser);
+        }
       }
 
-      // Fetch settings from D1
+      // 2. If Admin, fetch all users from Cloudflare D1
+      if (activeUser?.role === 'admin') {
+        const remoteUsers = await d1SyncService.fetchUsers();
+        if (remoteUsers && remoteUsers.length > 0) {
+          this.saveUsers(remoteUsers);
+        }
+      }
+
+      // 3. Fetch exams from D1 (user isolated if teacher, full list if admin)
+      const remoteExams = await d1SyncService.fetchExams(
+        activeUser?.email,
+        activeUser?.role
+      );
+      if (remoteExams && remoteExams.length > 0) {
+        // Merge without losing other offline items
+        const existing = this.getAllExamsRaw();
+        const map = new Map<string, Exam>();
+        existing.forEach((e) => map.set(e.id, e));
+        remoteExams.forEach((e) => map.set(e.id, e));
+        this.saveExams(Array.from(map.values()));
+      }
+
+      // 4. Fetch scan results from D1 (user isolated)
+      const remoteScans = await d1SyncService.fetchScanResults(
+        undefined,
+        activeUser?.email,
+        activeUser?.role
+      );
+      if (remoteScans && remoteScans.length > 0) {
+        const existing = this.getAllScanResultsRaw();
+        const map = new Map<string, ScanResult>();
+        existing.forEach((s) => map.set(s.id, s));
+        remoteScans.forEach((s) => map.set(s.id, s));
+        this.saveScanResults(Array.from(map.values()));
+      }
+
+      // 5. Fetch settings from D1
       const remoteSettings = await d1SyncService.fetchSettings();
       if (remoteSettings) {
         this.saveSettings(remoteSettings);
       }
 
-      return { success: true, message: 'ซิงค์ข้อมูลกับ Cloudflare D1 สำเร็จ' };
+      return { success: true, message: 'ซิงค์ข้อมูลกับ Cloudflare D1 สำเร็จ ทุกอุปกรณ์ตรงกัน' };
     } catch (err: any) {
       return { success: false, message: err.message || 'ซิงค์ข้อมูลล้มเหลว' };
     }
   },
 
   recalculateUserStorage(email: string): void {
-    const results = this.getScanResults().filter(
-      (r) => r.scannedByEmail.toLowerCase() === email.toLowerCase()
+    const results = this.getAllScanResultsRaw().filter(
+      (r) => r.scannedByEmail && r.scannedByEmail.toLowerCase() === email.toLowerCase()
     );
     const totalBytes = results.reduce(
       (acc, r) => acc + (r.imageSizeBytes || (r.scannedImageUrl?.length || 0)),
@@ -317,6 +418,8 @@ export const storageService = {
         current.storageBytes = totalBytes;
         this.setCurrentUser(current);
       }
+      // Sync user storage bytes to Cloudflare D1
+      d1SyncService.saveUser(user).catch(() => {});
     }
   },
 

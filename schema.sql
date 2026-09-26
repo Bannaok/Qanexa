@@ -11,8 +11,9 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'teacher',
+  role TEXT NOT NULL DEFAULT 'member',
   status TEXT NOT NULL DEFAULT 'approved',
+  avatar_url TEXT,
   created_at TEXT NOT NULL,
   last_login_at TEXT NOT NULL,
   storage_bytes INTEGER DEFAULT 0
@@ -44,10 +45,14 @@ CREATE TABLE IF NOT EXISTS scan_results (
   student_class TEXT,
   score INTEGER NOT NULL,
   total_questions INTEGER NOT NULL,
+  correct_count INTEGER DEFAULT 0,
   score_percentage INTEGER NOT NULL,
   passed INTEGER NOT NULL DEFAULT 0,
   answers_json TEXT NOT NULL,
   annotated_image_url TEXT,
+  scanned_image_url TEXT,
+  image_size_bytes INTEGER DEFAULT 0,
+  scanned_by_email TEXT NOT NULL,
   scanned_at TEXT NOT NULL,
   notes TEXT
 );

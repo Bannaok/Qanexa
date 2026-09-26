@@ -29,7 +29,7 @@ export const d1SyncService = {
       if (data.isD1Available) {
         return {
           isAvailable: true,
-          message: 'เชื่อมต่อ Cloudflare D1 สำเร็จ พร้อมใช้งานแบบเรียลไทม์',
+          message: 'เชื่อมต่อ Cloudflare D1 สำเร็จ ข้อมูลซิงค์ทุกเครื่องเรียลไทม์',
         };
       }
 
@@ -45,10 +45,15 @@ export const d1SyncService = {
     }
   },
 
-  // 1. Exams
-  async fetchExams(): Promise<Exam[] | null> {
+  // 1. Exams (With User Isolation & Admin Access)
+  async fetchExams(userEmail?: string, role?: string): Promise<Exam[] | null> {
     try {
-      const res = await fetch('/api/exams');
+      const params = new URLSearchParams();
+      if (userEmail) params.append('userEmail', userEmail);
+      if (role) params.append('role', role);
+
+      const url = `/api/exams${params.toString() ? '?' + params.toString() : ''}`;
+      const res = await fetch(url);
       if (!res.ok) return null;
       const data = await res.json();
       return data.success ? data.exams : null;
@@ -79,10 +84,15 @@ export const d1SyncService = {
     }
   },
 
-  // 2. Scan Results
-  async fetchScanResults(examId?: string): Promise<ScanResult[] | null> {
+  // 2. Scan Results (With User Isolation & Admin Access)
+  async fetchScanResults(examId?: string, userEmail?: string, role?: string): Promise<ScanResult[] | null> {
     try {
-      const url = examId ? `/api/scans?examId=${encodeURIComponent(examId)}` : '/api/scans';
+      const params = new URLSearchParams();
+      if (examId) params.append('examId', examId);
+      if (userEmail) params.append('userEmail', userEmail);
+      if (role) params.append('role', role);
+
+      const url = `/api/scans${params.toString() ? '?' + params.toString() : ''}`;
       const res = await fetch(url);
       if (!res.ok) return null;
       const data = await res.json();
@@ -99,6 +109,15 @@ export const d1SyncService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(result),
       });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  async deleteScanResult(id: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/scans/${id}`, { method: 'DELETE' });
       return res.ok;
     } catch {
       return false;
@@ -130,13 +149,24 @@ export const d1SyncService = {
     }
   },
 
-  // 4. Users
+  // 4. Users (Member Management & Admin Approval/Ban/Delete)
   async fetchUsers(): Promise<UserProfile[] | null> {
     try {
       const res = await fetch('/api/users');
       if (!res.ok) return null;
       const data = await res.json();
       return data.success ? data.users : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async fetchUserByEmail(email: string): Promise<UserProfile | null> {
+    try {
+      const res = await fetch(`/api/users?email=${encodeURIComponent(email)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.success ? data.user : null;
     } catch {
       return null;
     }
@@ -149,6 +179,15 @@ export const d1SyncService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(user),
       });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  async deleteUser(userId: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
       return res.ok;
     } catch {
       return false;

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AppSettings } from '../types';
 import { useAuth } from '../services/authContext';
+import { useToast } from '../services/toastContext';
 import { storageService } from '../services/storageService';
 import {
   Home,
@@ -16,6 +17,7 @@ import {
   X,
   FileCheck,
   Users,
+  RefreshCw,
 } from 'lucide-react';
 import { ImageFallback } from './ImageFallback';
 
@@ -36,9 +38,23 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenProfile,
   onOpenMembers,
 }) => {
-  const { currentUser, isAuthenticated, isAdmin, isPending, logout } = useAuth();
+  const { currentUser, isAuthenticated, isAdmin, isPending, logout, syncCloudData } = useAuth();
+  const { success, info } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      await syncCloudData();
+      success('ซิงค์ข้อมูลเรียบร้อย', 'ข้อมูลบนเบราว์เซอร์นี้ตรงกับคลาวด์ล่าสุดแล้ว');
+    } catch {
+      info('เชื่อมต่อคลาวด์', 'ใช้งานข้อมูลในเครื่องอัตโนมัติ');
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
+    }
+  };
 
   const storageDisplay = currentUser
     ? storageService.formatBytes(currentUser.storageBytes || 0)
@@ -112,6 +128,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <HardDrive className="w-3.5 h-3.5 text-indigo-500" />
                   <span>{storageDisplay}</span>
                 </div>
+
+                {/* Cloud Sync Button */}
+                <button
+                  onClick={handleManualSync}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200 hover:border-indigo-200 rounded-xl transition-all cursor-pointer text-xs font-medium shadow-2xs"
+                  title="ซิงค์ข้อมูลกับคลาวด์ D1 (ทุกอุปกรณ์ตรงกัน)"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-600' : ''}`} />
+                  <span className="hidden sm:inline">{isSyncing ? 'กำลังซิงค์...' : 'ซิงค์ข้อมูล'}</span>
+                </button>
 
                 {/* Settings button */}
                 <button

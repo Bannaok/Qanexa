@@ -67,7 +67,7 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
     return jsonResponse(
       {
         success: false,
-        error: 'Cloudflare D1 Database binding (DB) is not configured in wrangler.toml or Cloudflare dashboard.',
+        error: 'Cloudflare D1 Database binding (DB) is not configured in Cloudflare Pages dashboard.',
         isD1Available: false,
       },
       503
@@ -135,7 +135,7 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
       }
     }
 
-    // 3. Exams API
+    // 3. Exams API - Support user isolation & admin view
     if (path === 'exams' || path.startsWith('exams/')) {
       const examId = path.split('/')[1];
 
@@ -161,8 +161,22 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
           });
         }
 
-        const rows = await db.prepare('SELECT * FROM exams ORDER BY created_at DESC').all<any>();
-        const exams = (rows.results || []).map((r) => ({
+        const userEmail = url.searchParams.get('userEmail');
+        const role = url.searchParams.get('role');
+
+        let rowsResult;
+        // If not admin and userEmail is provided, isolate by user
+        if (role !== 'admin' && userEmail) {
+          rowsResult = await db
+            .prepare('SELECT * FROM exams WHERE LOWER(created_by) = LOWER(?) ORDER BY created_at DESC')
+            .bind(userEmail)
+            .all<any>();
+        } else {
+          // Admin or all
+          rowsResult = await db.prepare('SELECT * FROM exams ORDER BY created_at DESC').all<any>();
+        }
+
+        const exams = (rowsResult.results || []).map((r) => ({
           id: r.id,
           title: r.title,
           code: r.code,
@@ -219,21 +233,33 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
       }
     }
 
-    // 4. Scan Results API
+    // 4. Scan Results API - Support user isolation & admin view
     if (path === 'scans' || path.startsWith('scans/')) {
       const scanId = path.split('/')[1];
 
       if (method === 'GET') {
         const queryExamId = url.searchParams.get('examId');
-        let query = 'SELECT * FROM scan_results';
-        let stmt = db.prepare(query);
+        const userEmail = url.searchParams.get('userEmail');
+        const role = url.searchParams.get('role');
+
+        let query = 'SELECT * FROM scan_results WHERE 1=1';
+        const params: unknown[] = [];
 
         if (queryExamId) {
-          query += ' WHERE exam_id = ? ORDER BY scanned_at DESC';
-          stmt = db.prepare(query).bind(queryExamId);
-        } else {
-          query += ' ORDER BY scanned_at DESC';
-          stmt = db.prepare(query);
+          query += ' AND exam_id = ?';
+          params.push(queryExamId);
+        }
+
+        if (role !== 'admin' && userEmail) {
+          query += ' AND LOWER(scanned_by_email) = LOWER(?)';
+          params.push(userEmail);
+        }
+
+        query += ' ORDER BY scanned_at DESC';
+
+        let stmt = db.prepare(query);
+        if (params.length > 0) {
+          stmt = stmt.bind(...params);
         }
 
         const rows = await stmt.all<any>();
@@ -246,10 +272,14 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
           studentClass: r.student_class,
           score: r.score,
           totalQuestions: r.total_questions,
+          correctCount: r.correct_count ?? r.score,
           scorePercentage: r.score_percentage,
           passed: Boolean(r.passed),
           answers: JSON.parse(r.answers_json || '[]'),
           annotatedImageUrl: r.annotated_image_url || '',
+          scannedImageUrl: r.scanned_image_url || '',
+          imageSizeBytes: r.image_size_bytes || 0,
+          scannedByEmail: r.scanned_by_email,
           scannedAt: r.scanned_at,
           notes: r.notes,
         }));
@@ -261,8 +291,8 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
         await db
           .prepare(
             `INSERT OR REPLACE INTO scan_results
-             (id, exam_id, exam_title, student_name, student_id, student_class, score, total_questions, score_percentage, passed, answers_json, annotated_image_url, scanned_at, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, exam_id, exam_title, student_name, student_id, student_class, score, total_questions, correct_count, score_percentage, passed, answers_json, annotated_image_url, scanned_image_url, image_size_bytes, scanned_by_email, scanned_at, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             body.id,
@@ -273,10 +303,14 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
             body.studentClass || null,
             body.score,
             body.totalQuestions,
+            body.correctCount ?? body.score,
             body.scorePercentage,
             body.passed ? 1 : 0,
             JSON.stringify(body.answers || []),
             body.annotatedImageUrl || '',
+            body.scannedImageUrl || '',
+            body.imageSizeBytes || 0,
+            body.scannedByEmail || 'user',
             body.scannedAt || new Date().toISOString(),
             body.notes || null
           )
@@ -291,11 +325,36 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
       }
     }
 
-    // 5. Users API
+    // 5. Users API - Full member management & sync
     if (path === 'users' || path.startsWith('users/')) {
       const userId = path.split('/')[1];
 
       if (method === 'GET') {
+        const emailQuery = url.searchParams.get('email');
+        if (emailQuery) {
+          const row = await db
+            .prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)')
+            .bind(emailQuery)
+            .first<any>();
+          if (!row) {
+            return jsonResponse({ success: true, user: null });
+          }
+          return jsonResponse({
+            success: true,
+            user: {
+              id: row.id,
+              email: row.email,
+              displayName: row.display_name,
+              role: row.role,
+              status: row.status,
+              avatarUrl: row.avatar_url || '',
+              createdAt: row.created_at,
+              lastLoginAt: row.last_login_at,
+              storageBytes: row.storage_bytes,
+            },
+          });
+        }
+
         const rows = await db.prepare('SELECT * FROM users ORDER BY created_at ASC').all<any>();
         const users = (rows.results || []).map((r) => ({
           id: r.id,
@@ -303,6 +362,7 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
           displayName: r.display_name,
           role: r.role,
           status: r.status,
+          avatarUrl: r.avatar_url || '',
           createdAt: r.created_at,
           lastLoginAt: r.last_login_at,
           storageBytes: r.storage_bytes,
@@ -315,15 +375,16 @@ export const onRequest = async (context: PagesContext): Promise<Response> => {
         await db
           .prepare(
             `INSERT OR REPLACE INTO users
-             (id, email, display_name, role, status, created_at, last_login_at, storage_bytes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, email, display_name, role, status, avatar_url, created_at, last_login_at, storage_bytes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             body.id,
             body.email,
             body.displayName,
-            body.role || 'teacher',
+            body.role || 'member',
             body.status || 'approved',
+            body.avatarUrl || null,
             body.createdAt || new Date().toISOString(),
             body.lastLoginAt || new Date().toISOString(),
             body.storageBytes || 0

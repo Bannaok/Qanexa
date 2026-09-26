@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ToastProvider, useToast } from './services/toastContext';
 import { AuthProvider, useAuth } from './services/authContext';
 import { ToastContainer } from './components/ToastContainer';
@@ -18,13 +18,13 @@ import { storageService } from './services/storageService';
 import { AppSettings, Exam } from './types';
 
 const MainAppContent: React.FC = () => {
-  const { isAuthenticated, isPending } = useAuth();
+  const { currentUser, isAuthenticated, isPending } = useAuth();
   const { info, warning } = useToast();
 
   // Tab: 'home' (2 minimal items: 1.ชุดข้อสอบ 2.สแกนคิวอาร์โค้ด) or 'exams'
   const [currentTab, setCurrentTab] = useState<'home' | 'exams'>('home');
   const [appSettings, setAppSettings] = useState<AppSettings>(() => storageService.getSettings());
-  const [exams, setExams] = useState<Exam[]>(() => storageService.getExams());
+  const [exams, setExams] = useState<Exam[]>(() => storageService.getExams(storageService.getCurrentUser()));
 
   // Modals state
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -38,9 +38,14 @@ const MainAppContent: React.FC = () => {
   const [activeScanExam, setActiveScanExam] = useState<Exam | null>(null);
   const [activePrintExam, setActivePrintExam] = useState<Exam | null>(null);
 
-  const refreshExams = () => {
-    setExams(storageService.getExams());
-  };
+  const refreshExams = useCallback(() => {
+    setExams(storageService.getExams(currentUser));
+  }, [currentUser]);
+
+  // When currentUser changes (e.g. login, switch account, admin login), immediately reload isolated exams
+  useEffect(() => {
+    refreshExams();
+  }, [currentUser, refreshExams]);
 
   const handleOpenScan = (exam: Exam) => {
     if (!isAuthenticated) {
@@ -158,8 +163,9 @@ const MainAppContent: React.FC = () => {
             <span>•</span>
             <span>{appSettings.organizationName}</span>
           </div>
-          <div>
-            ระบบสร้างและสแกนกระดาษคำตอบปรนัย (Multiple-Choice Exam Scanner System)
+
+          <div className="text-slate-400">
+            ระบบตรวจกระดาษคำตอบ ปรนัย 3, 4, 5 ตัวเลือก (OMR Engine) • ซิงค์อัตโนมัติทุกอุปกรณ์
           </div>
         </div>
       </footer>
@@ -168,12 +174,13 @@ const MainAppContent: React.FC = () => {
       <LoginModal
         isOpen={isLoginOpen}
         onClose={() => setIsLoginOpen(false)}
+        appSettings={appSettings}
       />
 
       <AppSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        onSettingsSaved={(updated: AppSettings) => setAppSettings(updated)}
+        onSettingsSaved={(updated) => setAppSettings(updated)}
         initialTab={settingsTab}
       />
 
@@ -182,30 +189,31 @@ const MainAppContent: React.FC = () => {
         onClose={() => setIsProfileOpen(false)}
       />
 
-      {isCreateExamOpen && (
-        <CreateExamModal
-          isOpen={isCreateExamOpen}
-          onClose={() => setIsCreateExamOpen(false)}
-          editingExam={editingExam}
-          onExamCreated={() => {
-            refreshExams();
-            setIsCreateExamOpen(false);
-          }}
-        />
-      )}
+      <CreateExamModal
+        isOpen={isCreateExamOpen}
+        onClose={() => {
+          setIsCreateExamOpen(false);
+          setEditingExam(null);
+        }}
+        onExamCreated={refreshExams}
+        examToEdit={editingExam}
+      />
 
+      {/* Full Screen Scanner Modal */}
       {activeScanExam && (
         <ScannerModal
           isOpen={!!activeScanExam}
-          onClose={() => setActiveScanExam(null)}
           exam={activeScanExam}
-          onScanSaved={() => refreshExams()}
+          onClose={() => setActiveScanExam(null)}
+          onScanSaved={refreshExams}
         />
       )}
 
+      {/* Printable Answer Sheet Modal / View */}
       {activePrintExam && (
         <AnswerSheetView
           exam={activePrintExam}
+          appSettings={appSettings}
           onClose={() => setActivePrintExam(null)}
         />
       )}
