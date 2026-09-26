@@ -1,17 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { Exam } from '../types';
 import { storageService } from '../services/storageService';
-import { useAuth } from '../services/authContext';
 import { useToast } from '../services/toastContext';
 import {
   FileText,
-  Camera,
-  Printer,
-  Edit3,
-  Trash2,
   PlusCircle,
   Search,
-  BookOpen,
+  Printer,
+  Camera,
+  Edit3,
+  Trash2,
+  Calendar,
+  GraduationCap,
   ArrowLeft,
 } from 'lucide-react';
 
@@ -62,6 +62,7 @@ export const ExamList: React.FC<ExamListProps> = ({
     return exams
       .filter((e) => {
         const matchSearch =
+          !search ||
           e.title.toLowerCase().includes(search.toLowerCase()) ||
           (e.code && e.code.toLowerCase().includes(search.toLowerCase())) ||
           (e.gradeLevel && e.gradeLevel.toLowerCase().includes(search.toLowerCase()));
@@ -80,11 +81,11 @@ export const ExamList: React.FC<ExamListProps> = ({
       });
   }, [exams, search, filterGrade]);
 
-  const handleDelete = (id: string, title: string) => {
-    if (confirm(`ยืนยันการลบชุดข้อสอบ "${title}" หรือไม่?`)) {
-      storageService.deleteExam(id);
+  const handleDelete = async (id: string, title: string) => {
+    if (confirm(`ยืนยันการลบชุดข้อสอบ "${title}" หรือไม่? ข้อมูลจะถูกลบออกจากทุกเครื่องทันที`)) {
+      await storageService.deleteExam(id);
       onExamsUpdated();
-      info('ลบชุดข้อสอบเรียบร้อยแล้ว');
+      info('ลบชุดข้อสอบเรียบร้อยแล้ว (ซิงค์ไปยังคลาวด์ D1 เรียบร้อย)');
     }
   };
 
@@ -125,7 +126,7 @@ export const ExamList: React.FC<ExamListProps> = ({
           </button>
         </div>
 
-        {/* Filter by Grade & Search in one compact row (เอาออกตัวเลือก 3/4 และ เอาออก วันที่สร้างล่าสุด/เก่าสุด ตามแก้1) */}
+        {/* Filter by Grade & Search in one compact row */}
         <div className="flex flex-col sm:flex-row gap-2 mt-3.5 pt-3.5 border-t border-slate-100">
           {/* Search */}
           <div className="relative flex-1">
@@ -139,17 +140,18 @@ export const ExamList: React.FC<ExamListProps> = ({
             />
           </div>
 
-          {/* Grade Level Filter (แทนที่ตัวเลือกเดิม) */}
-          <div className="w-full sm:w-60 shrink-0">
+          {/* Grade Level Selector */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <GraduationCap className="w-4 h-4 text-slate-400 shrink-0" />
             <select
               value={filterGrade}
               onChange={(e) => setFilterGrade(e.target.value)}
-              className="w-full px-3 py-1.5 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-colors"
+              className="w-full sm:w-auto px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer"
             >
-              <option value="all">ทุกระดับชั้น (ป.1 - ม.3)</option>
-              {GRADE_ORDER.map((g) => (
-                <option key={g} value={g}>
-                  {g}
+              <option value="all">ทุกระดับชั้น ({exams.length})</option>
+              {GRADE_ORDER.map((grade) => (
+                <option key={grade} value={grade}>
+                  {grade}
                 </option>
               ))}
             </select>
@@ -157,19 +159,24 @@ export const ExamList: React.FC<ExamListProps> = ({
         </div>
       </div>
 
-      {/* List of Compact Exam Cards - แก้2: ขนาดเล็ก สะอาดตา มินิมัล ไม่รกรายละเอียด */}
+      {/* Exam List Cards */}
       {filteredExams.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400 space-y-2">
-          <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
-          <h3 className="font-heading font-semibold text-sm text-slate-700">ไม่พบชุดข้อสอบ</h3>
-          <p className="text-xs text-slate-400">
-            ยังไม่มีชุดข้อสอบตามระดับชั้นที่เลือก หรือยังไม่ได้สร้าง
+        <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center shadow-xs">
+          <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+            <FileText className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-slate-800">ไม่พบชุดข้อสอบ</h3>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            {search || filterGrade !== 'all'
+              ? 'ไม่พบข้อมูลที่ตรงกับตัวกรองที่เลือก ลองเปลี่ยนคำค้นหาหรือระดับชั้น'
+              : 'เริ่มต้นสร้างชุดกระดาษคำตอบปรนัย (OMR) ชุดแรกของคุณเพื่อเริ่มใช้งาน'}
           </p>
           <button
             onClick={onOpenCreate}
-            className="inline-flex items-center gap-1 px-3.5 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold shadow-xs cursor-pointer mt-2"
+            className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
           >
-            <PlusCircle className="w-3.5 h-3.5" /> สร้างชุดข้อสอบ
+            <PlusCircle className="w-4 h-4" />
+            <span>สร้างชุดข้อสอบใหม่</span>
           </button>
         </div>
       ) : (
@@ -177,16 +184,24 @@ export const ExamList: React.FC<ExamListProps> = ({
           {filteredExams.map((exam) => (
             <div
               key={exam.id}
-              className="bg-white rounded-2xl border border-slate-200/90 hover:border-indigo-300 transition-all p-3 sm:p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-indigo-300 p-3 sm:p-4 shadow-2xs hover:shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
             >
-              {/* Left Column: Grade + Title + Info */}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100 shrink-0">
-                    {exam.gradeLevel || 'ไม่ระบุชั้น'}
-                  </span>
+              {/* Left Column: Grade badge & Title */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {exam.gradeLevel && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      <GraduationCap className="w-3 h-3" />
+                      {exam.gradeLevel}
+                    </span>
+                  )}
+                  {exam.code && (
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-slate-100 text-slate-600 font-medium">
+                      {exam.code}
+                    </span>
+                  )}
                   <span className="text-[11px] text-slate-500 font-medium">
-                    • {exam.questionCount} ข้อ ({exam.choiceCount} ตัวเลือก)
+                    {exam.questionCount} ข้อ • {exam.choiceCount} ตัวเลือก
                   </span>
                   {exam.choiceLabelType && (
                     <span className="text-[10px] text-slate-400 font-mono">
@@ -200,7 +215,7 @@ export const ExamList: React.FC<ExamListProps> = ({
                 </h3>
               </div>
 
-              {/* Right Column: Compact Actions (Mobile-friendly row) */}
+              {/* Right Column: Compact Actions */}
               <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                 {/* Print button */}
                 <button

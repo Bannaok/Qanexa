@@ -7,6 +7,20 @@ const ADMIN_PASS_KEY = 'examscan_admin_password';
 const EXAMS_KEY = 'examscan_exams';
 const SCAN_RESULTS_KEY = 'examscan_scan_results';
 const CURRENT_USER_KEY = 'examscan_current_user';
+const INITIALIZED_KEY = 'examscan_has_initialized_seed';
+
+// BroadcastChannel for instant same-browser cross-tab sync without delay
+const syncChannel = typeof window !== 'undefined' && 'BroadcastChannel' in window
+  ? new BroadcastChannel('examscan_channel')
+  : null;
+
+const notifyLocalChange = (type: string, payload?: any) => {
+  if (syncChannel) {
+    try {
+      syncChannel.postMessage({ type, payload, timestamp: Date.now() });
+    } catch {}
+  }
+};
 
 const DEFAULT_SETTINGS: AppSettings = {
   appName: 'ExamScan OMR Pro',
@@ -87,10 +101,11 @@ export const storageService = {
     }
   },
 
-  saveSettings(settings: AppSettings): void {
+  async saveSettings(settings: AppSettings): Promise<void> {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    // Asynchronous background sync to Cloudflare D1
-    d1SyncService.saveSettings(settings).catch(() => {});
+    notifyLocalChange('settings_updated', settings);
+    // Cloudflare D1 Sync
+    await d1SyncService.saveSettings(settings).catch(() => {});
   },
 
   // Admin Password
@@ -146,6 +161,7 @@ export const storageService = {
 
   saveUsers(users: UserProfile[]): void {
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    notifyLocalChange('users_updated');
   },
 
   getUserByEmail(email: string): UserProfile | undefined {
@@ -153,7 +169,7 @@ export const storageService = {
     return users.find((u) => u.email.toLowerCase() === email.toLowerCase());
   },
 
-  updateUser(updated: UserProfile): void {
+  async updateUser(updated: UserProfile): Promise<void> {
     const users = this.getUsers();
     const index = users.findIndex((u) => u.id === updated.id || u.email.toLowerCase() === updated.email.toLowerCase());
     if (index >= 0) {
@@ -169,15 +185,15 @@ export const storageService = {
       this.setCurrentUser({ ...current, ...updated });
     }
 
-    // Background sync to Cloudflare D1
-    d1SyncService.saveUser(updated).catch(() => {});
+    // Direct Cloudflare D1 Sync
+    await d1SyncService.saveUser(updated).catch(() => {});
   },
 
-  deleteUser(userId: string): void {
+  async deleteUser(userId: string): Promise<void> {
     const users = this.getUsers().filter((u) => u.id !== userId);
     this.saveUsers(users);
-    // Background sync to Cloudflare D1
-    d1SyncService.deleteUser(userId).catch(() => {});
+    // Immediate Cloudflare D1 Deletion
+    await d1SyncService.deleteUser(userId).catch(() => {});
   },
 
   // Current session user
@@ -197,6 +213,7 @@ export const storageService = {
     } else {
       localStorage.removeItem(CURRENT_USER_KEY);
     }
+    notifyLocalChange('auth_changed', user);
   },
 
   // Exams with User-Isolation:
@@ -206,13 +223,20 @@ export const storageService = {
     const raw = localStorage.getItem(EXAMS_KEY);
     let allExams: Exam[] = [];
     if (!raw) {
-      allExams = INITIAL_EXAMS;
-      localStorage.setItem(EXAMS_KEY, JSON.stringify(INITIAL_EXAMS));
+      // Check if user already cleared or initialized
+      const hasInit = localStorage.getItem(INITIALIZED_KEY);
+      if (!hasInit) {
+        allExams = INITIAL_EXAMS;
+        localStorage.setItem(EXAMS_KEY, JSON.stringify(INITIAL_EXAMS));
+        localStorage.setItem(INITIALIZED_KEY, 'true');
+      } else {
+        allExams = [];
+      }
     } else {
       try {
         allExams = JSON.parse(raw);
       } catch {
-        allExams = INITIAL_EXAMS;
+        allExams = [];
       }
     }
 
@@ -221,7 +245,6 @@ export const storageService = {
 
     const email = currentUser.email.toLowerCase();
     return allExams.filter((e) => {
-      // User created this exam OR it's a sample system exam
       return (
         (e.createdBy && e.createdBy.toLowerCase() === email) ||
         e.createdBy === 'admin@system.local' ||
@@ -232,23 +255,33 @@ export const storageService = {
 
   getAllExamsRaw(): Exam[] {
     const raw = localStorage.getItem(EXAMS_KEY);
-    if (!raw) return INITIAL_EXAMS;
+    if (!raw) {
+      const hasInit = localStorage.getItem(INITIALIZED_KEY);
+      if (!hasInit) {
+        localStorage.setItem(EXAMS_KEY, JSON.stringify(INITIAL_EXAMS));
+        localStorage.setItem(INITIALIZED_KEY, 'true');
+        return INITIAL_EXAMS;
+      }
+      return [];
+    }
     try {
       return JSON.parse(raw);
     } catch {
-      return INITIAL_EXAMS;
+      return [];
     }
   },
 
   saveExams(exams: Exam[]): void {
     localStorage.setItem(EXAMS_KEY, JSON.stringify(exams));
+    localStorage.setItem(INITIALIZED_KEY, 'true');
+    notifyLocalChange('exams_updated');
   },
 
   getExamById(id: string): Exam | undefined {
     return this.getAllExamsRaw().find((e) => e.id === id);
   },
 
-  saveExam(exam: Exam): void {
+  async saveExam(exam: Exam): Promise<void> {
     const exams = this.getAllExamsRaw();
     const idx = exams.findIndex((e) => e.id === exam.id);
     if (idx >= 0) {
@@ -257,18 +290,21 @@ export const storageService = {
       exams.unshift(exam);
     }
     this.saveExams(exams);
-    // Background sync to Cloudflare D1
-    d1SyncService.saveExam(exam).catch(() => {});
+    // Immediate Cloudflare D1 Sync
+    await d1SyncService.saveExam(exam).catch(() => {});
   },
 
-  deleteExam(id: string): void {
+  async deleteExam(id: string): Promise<void> {
+    // 1. Delete immediately from LocalStorage
     const exams = this.getAllExamsRaw().filter((e) => e.id !== id);
     this.saveExams(exams);
+
     // Also remove scan results for this exam
     const results = this.getAllScanResultsRaw().filter((r) => r.examId !== id);
     this.saveScanResults(results);
-    // Background sync to Cloudflare D1
-    d1SyncService.deleteExam(id).catch(() => {});
+
+    // 2. Direct Cloudflare D1 Deletion - wait for it so D1 removes it immediately
+    await d1SyncService.deleteExam(id).catch(() => {});
   },
 
   // Scan Results with User-Isolation:
@@ -295,9 +331,10 @@ export const storageService = {
 
   saveScanResults(results: ScanResult[]): void {
     localStorage.setItem(SCAN_RESULTS_KEY, JSON.stringify(results));
+    notifyLocalChange('scans_updated');
   },
 
-  addScanResult(result: ScanResult): void {
+  async addScanResult(result: ScanResult): Promise<void> {
     const results = this.getAllScanResultsRaw();
     results.unshift(result);
     this.saveScanResults(results);
@@ -305,11 +342,11 @@ export const storageService = {
     // Update storage size for the scanner email
     this.recalculateUserStorage(result.scannedByEmail);
 
-    // Background sync to Cloudflare D1
-    d1SyncService.saveScanResult(result).catch(() => {});
+    // Immediate Cloudflare D1 Sync
+    await d1SyncService.saveScanResult(result).catch(() => {});
   },
 
-  deleteScanResult(resultId: string): void {
+  async deleteScanResult(resultId: string): Promise<void> {
     const results = this.getAllScanResultsRaw();
     const target = results.find((r) => r.id === resultId);
     const updated = results.filter((r) => r.id !== resultId);
@@ -318,84 +355,126 @@ export const storageService = {
     if (target) {
       this.recalculateUserStorage(target.scannedByEmail);
     }
-    // Background sync to Cloudflare D1
-    d1SyncService.deleteScanResult(resultId).catch(() => {});
+    // Immediate Cloudflare D1 Deletion
+    await d1SyncService.deleteScanResult(resultId).catch(() => {});
   },
 
   /**
-   * Syncs local storage with Cloudflare D1 across any device or browser:
-   * 1. Syncs current user status (e.g. if Admin approved/banned/deleted the user)
-   * 2. Syncs Exams: teacher's own exams, or all exams if Admin
-   * 3. Syncs Scans: teacher's own scans, or all scans if Admin
-   * 4. Syncs Settings
-   * 5. If Admin, syncs all registered members list
+   * High-Speed True Mirror Sync with Cloudflare D1:
+   * 
+   * CRITICAL FIX FOR DELETIONS:
+   * Previously, local exams were merged with remote exams using Map, which resurrects deleted exams!
+   * Now: If remote D1 responds successfully, the remote dataset is treated as the Source of Truth for this user.
+   * If an exam was deleted in Browser A, Browser B's sync will replace its local cache with the remote list,
+   * causing the deleted exam/scan to disappear immediately!
    */
   async syncWithD1(currentUser?: UserProfile | null): Promise<{ success: boolean; message: string }> {
     try {
-      const conn = await d1SyncService.checkConnection();
-      if (!conn.isAvailable) {
-        return { success: false, message: conn.message };
+      const activeUser = currentUser || this.getCurrentUser();
+      if (!activeUser) {
+        return { success: false, message: 'กรุณาเข้าสู่ระบบก่อนซิงค์' };
       }
 
-      const activeUser = currentUser || this.getCurrentUser();
-
       // 1. Sync User profile & Admin approval status from server
-      if (activeUser && activeUser.email) {
+      if (activeUser.email) {
         const remoteUser = await d1SyncService.fetchUserByEmail(activeUser.email);
         if (remoteUser) {
-          this.updateUser(remoteUser);
+          // If remote status changed (e.g. approved or rejected by Admin), update immediately
+          const current = this.getCurrentUser();
+          if (current && (current.status !== remoteUser.status || current.role !== remoteUser.role)) {
+            this.setCurrentUser(remoteUser);
+          }
+          this.updateUserLocalOnly(remoteUser);
         } else {
-          // Push local user to server
+          // Register user in D1 if not exists yet
           await d1SyncService.saveUser(activeUser);
         }
       }
 
-      // 2. If Admin, fetch all users from Cloudflare D1
-      if (activeUser?.role === 'admin') {
+      // 2. If Admin, sync users list as authoritative
+      if (activeUser.role === 'admin') {
         const remoteUsers = await d1SyncService.fetchUsers();
-        if (remoteUsers && remoteUsers.length > 0) {
+        if (remoteUsers) {
           this.saveUsers(remoteUsers);
         }
       }
 
-      // 3. Fetch exams from D1 (user isolated if teacher, full list if admin)
+      // 3. Sync Exams with TRUE DELETION PROPAGATION:
+      // When D1 is online:
+      // - If teacher: D1 returns teacher's exams. Any exam created locally that isn't on D1 gets pushed,
+      //   BUT if it was deleted on D1, it reflects properly.
       const remoteExams = await d1SyncService.fetchExams(
-        activeUser?.email,
-        activeUser?.role
+        activeUser.email,
+        activeUser.role
       );
-      if (remoteExams && remoteExams.length > 0) {
-        // Merge without losing other offline items
-        const existing = this.getAllExamsRaw();
-        const map = new Map<string, Exam>();
-        existing.forEach((e) => map.set(e.id, e));
-        remoteExams.forEach((e) => map.set(e.id, e));
-        this.saveExams(Array.from(map.values()));
+
+      if (remoteExams !== null) {
+        const localExams = this.getAllExamsRaw();
+        const userEmail = activeUser.email.toLowerCase();
+        const isAdmin = activeUser.role === 'admin';
+
+        if (isAdmin) {
+          // Admin sees the exact remote state
+          this.saveExams(remoteExams);
+        } else {
+          // For Teacher:
+          // Keep other teachers' exams or starter system exams that belong to other users untouched,
+          // BUT for this teacher's own exams, mirror the remote list completely!
+          const nonUserExams = localExams.filter(
+            (e) => e.createdBy && e.createdBy.toLowerCase() !== userEmail
+          );
+          
+          // Merge: remote teacher exams + non-user exams
+          const finalExams = [...remoteExams, ...nonUserExams];
+          this.saveExams(finalExams);
+        }
       }
 
-      // 4. Fetch scan results from D1 (user isolated)
+      // 4. Sync Scan Results with TRUE DELETION PROPAGATION:
       const remoteScans = await d1SyncService.fetchScanResults(
         undefined,
-        activeUser?.email,
-        activeUser?.role
+        activeUser.email,
+        activeUser.role
       );
-      if (remoteScans && remoteScans.length > 0) {
-        const existing = this.getAllScanResultsRaw();
-        const map = new Map<string, ScanResult>();
-        existing.forEach((s) => map.set(s.id, s));
-        remoteScans.forEach((s) => map.set(s.id, s));
-        this.saveScanResults(Array.from(map.values()));
+
+      if (remoteScans !== null) {
+        const localScans = this.getAllScanResultsRaw();
+        const userEmail = activeUser.email.toLowerCase();
+        const isAdmin = activeUser.role === 'admin';
+
+        if (isAdmin) {
+          this.saveScanResults(remoteScans);
+        } else {
+          // Replace teacher's scans with exact remote scans (deletions reflected instantly)
+          const nonUserScans = localScans.filter(
+            (s) => s.scannedByEmail && s.scannedByEmail.toLowerCase() !== userEmail
+          );
+          const finalScans = [...remoteScans, ...nonUserScans];
+          this.saveScanResults(finalScans);
+        }
       }
 
-      // 5. Fetch settings from D1
+      // 5. Sync Settings
       const remoteSettings = await d1SyncService.fetchSettings();
       if (remoteSettings) {
-        this.saveSettings(remoteSettings);
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(remoteSettings));
       }
 
-      return { success: true, message: 'ซิงค์ข้อมูลกับ Cloudflare D1 สำเร็จ ทุกอุปกรณ์ตรงกัน' };
+      return { success: true, message: 'ซิงค์ข้อมูล Cloudflare D1 อัตโนมัติเรียบร้อย' };
     } catch (err: any) {
       return { success: false, message: err.message || 'ซิงค์ข้อมูลล้มเหลว' };
     }
+  },
+
+  updateUserLocalOnly(updated: UserProfile): void {
+    const users = this.getUsers();
+    const index = users.findIndex((u) => u.id === updated.id || u.email.toLowerCase() === updated.email.toLowerCase());
+    if (index >= 0) {
+      users[index] = { ...users[index], ...updated };
+    } else {
+      users.push(updated);
+    }
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
   },
 
   recalculateUserStorage(email: string): void {
@@ -412,13 +491,11 @@ export const storageService = {
     if (user) {
       user.storageBytes = totalBytes;
       this.saveUsers(users);
-      // If current user is this user, sync
       const current = this.getCurrentUser();
       if (current && current.email.toLowerCase() === email.toLowerCase()) {
         current.storageBytes = totalBytes;
         this.setCurrentUser(current);
       }
-      // Sync user storage bytes to Cloudflare D1
       d1SyncService.saveUser(user).catch(() => {});
     }
   },

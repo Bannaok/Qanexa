@@ -47,6 +47,22 @@ const MainAppContent: React.FC = () => {
     refreshExams();
   }, [currentUser, refreshExams]);
 
+  // Listen to cloud sync events and broadcast channel for immediate UI re-rendering
+  useEffect(() => {
+    const handleCloudSynced = () => {
+      refreshExams();
+      setAppSettings(storageService.getSettings());
+    };
+
+    window.addEventListener('examscan_cloud_synced', handleCloudSynced);
+    window.addEventListener('storage', handleCloudSynced);
+
+    return () => {
+      window.removeEventListener('examscan_cloud_synced', handleCloudSynced);
+      window.removeEventListener('storage', handleCloudSynced);
+    };
+  }, [refreshExams]);
+
   const handleOpenScan = (exam: Exam) => {
     if (!isAuthenticated) {
       info('กรุณาเข้าสู่ระบบก่อนเริ่มสแกนข้อสอบ');
@@ -165,7 +181,7 @@ const MainAppContent: React.FC = () => {
           </div>
 
           <div className="text-slate-400">
-            ระบบตรวจกระดาษคำตอบ ปรนัย 3, 4, 5 ตัวเลือก (OMR Engine) • ซิงค์อัตโนมัติทุกอุปกรณ์
+            ระบบตรวจกระดาษคำตอบ ปรนัย 3, 4, 5 ตัวเลือก (OMR Engine) • ซิงค์อัตโนมัติความเร็วสูงผ่าน Cloudflare D1
           </div>
         </div>
       </footer>

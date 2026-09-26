@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { UserProfile, UserRole, UserStatus } from '../types';
 import { storageService } from './storageService';
 import { d1SyncService } from './d1SyncService';
@@ -24,26 +24,35 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => storageService.getCurrentUser());
   const { success, error, info } = useToast();
+  const isSyncingRef = useRef(false);
 
   const syncCloudData = useCallback(async () => {
     const user = storageService.getCurrentUser();
-    if (!user) return;
+    if (!user || isSyncingRef.current) return;
 
+    isSyncingRef.current = true;
     try {
       // 1. Sync User Profile and Approval Status from Cloudflare D1
       if (user.role !== 'admin') {
         const remoteUser = await d1SyncService.fetchUserByEmail(user.email);
         if (remoteUser) {
-          setCurrentUser(remoteUser);
-          storageService.setCurrentUser(remoteUser);
-          storageService.updateUser(remoteUser);
+          if (remoteUser.status !== user.status || remoteUser.role !== user.role || remoteUser.displayName !== user.displayName) {
+            setCurrentUser(remoteUser);
+            storageService.setCurrentUser(remoteUser);
+          }
+          storageService.updateUserLocalOnly(remoteUser);
         }
       }
 
-      // 2. Full Sync with D1 for user's own exams and scans (or all if admin)
+      // 2. High-speed Mirror Sync with D1 for user's own exams and scans (deletions reflected instantly!)
       await storageService.syncWithD1(user);
+
+      // Trigger custom window event so App.tsx and other components instantly refresh their UI
+      window.dispatchEvent(new CustomEvent('examscan_cloud_synced'));
     } catch {
-      // Offline fallback silent
+      // Silent error handler
+    } finally {
+      isSyncingRef.current = false;
     }
   }, []);
 
@@ -56,7 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (remote) {
             setCurrentUser(remote);
             storageService.setCurrentUser(remote);
-            storageService.updateUser(remote);
+            storageService.updateUserLocalOnly(remote);
             return;
           }
         } catch {}
@@ -70,15 +79,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    // Initial sync on app mount
+    // 1. Initial fast sync on app mount
     syncCloudData();
 
-    // Auto sync periodically every 20 seconds to catch Admin approvals or changes from other devices
+    // 2. High-speed automatic sync polling:
+    // Syncs every 4 seconds when the user is actively viewing the tab!
+    // Much faster than 20 seconds so changes from other browsers appear almost in real-time.
     const interval = setInterval(() => {
-      syncCloudData();
-    }, 20000);
+      if (document.visibilityState === 'visible') {
+        syncCloudData();
+      }
+    }, 4000);
 
-    return () => clearInterval(interval);
+    // 3. Instant sync whenever the user switches back to this browser tab
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncCloudData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    // 4. Cross-tab BroadcastChannel listener for instant same-browser multi-tab sync
+    let bc: BroadcastChannel | null = null;
+    if ('BroadcastChannel' in window) {
+      bc = new BroadcastChannel('examscan_channel');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'auth_changed') {
+          setCurrentUser(event.data.payload);
+        }
+        // When any tab deletes or adds an exam/scan, immediately sync
+        syncCloudData();
+      };
+    }
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+      if (bc) bc.close();
+    };
   }, [syncCloudData]);
 
   const loginAsAdmin = async (id: string, password: string): Promise<{ success: boolean; message?: string }> => {
@@ -105,20 +145,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lastLoginAt: new Date().toISOString(),
         storageBytes: 154000,
       };
-      storageService.updateUser(adminUser);
+      await storageService.updateUser(adminUser);
     } else {
       adminUser.lastLoginAt = new Date().toISOString();
-      storageService.updateUser(adminUser);
+      await storageService.updateUser(adminUser);
     }
 
     setCurrentUser(adminUser);
     storageService.setCurrentUser(adminUser);
     success('เข้าสู่ระบบสำเร็จ', 'ยินดีต้อนรับ ผู้ดูแลระบบ (Admin)');
 
-    // Trigger admin cloud sync
+    // Trigger instant admin cloud sync
     setTimeout(() => {
-      storageService.syncWithD1(adminUser).catch(() => {});
-    }, 100);
+      syncCloudData();
+    }, 50);
 
     return { success: true };
   };
@@ -133,7 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false };
     }
 
-    // Try check server first so that if user was already approved from another browser, we know!
+    // Try check server first
     let remoteUser: UserProfile | null = null;
     try {
       remoteUser = await d1SyncService.fetchUserByEmail(trimmedEmail);
@@ -148,44 +188,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lastLoginAt: new Date().toISOString(),
         displayName: displayName || remoteUser.displayName,
       };
-      storageService.updateUser(user);
+      await storageService.updateUser(user);
     } else {
       let existingLocal = storageService.getUserByEmail(trimmedEmail);
       if (!existingLocal) {
-        // New user registered with Google -> Default status is PENDING approval
         isNew = true;
         user = {
           id: 'user_' + Math.random().toString(36).substring(2, 10),
           email: trimmedEmail,
           displayName: displayName || trimmedEmail.split('@')[0],
           role: 'member',
-          status: 'pending', // Pending Admin approval!
+          status: 'pending',
           avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName || trimmedEmail)}`,
           createdAt: new Date().toISOString(),
           lastLoginAt: new Date().toISOString(),
           storageBytes: 0,
         };
-        storageService.updateUser(user);
+        await storageService.updateUser(user);
       } else {
         user = {
           ...existingLocal,
           lastLoginAt: new Date().toISOString(),
           displayName: displayName || existingLocal.displayName,
         };
-        storageService.updateUser(user);
+        await storageService.updateUser(user);
       }
     }
 
     setCurrentUser(user);
     storageService.setCurrentUser(user);
 
-    // Sync cloud state for this user
-    storageService.syncWithD1(user).catch(() => {});
+    // Immediate sync
+    setTimeout(() => {
+      syncCloudData();
+    }, 50);
 
     if (user.status === 'pending') {
       info(
         'บัญชีของคุณอยู่ระหว่างรอการอนุมัติ',
-        'ผู้ดูแลระบบ (Admin) ต้องอนุมัติสิทธิ์ก่อนเริ่มสร้างหรือสแกนข้อสอบ (ระบบจะซิงค์ให้อัตโนมัติเมื่อได้รับการอนุมัติ)'
+        'ผู้ดูแลระบบ (Admin) ต้องอนุมัติสิทธิ์ก่อนเริ่มสร้างหรือสแกนข้อสอบ (ระบบจะซิงค์ให้อัตโนมัติทันทีที่ได้รับการอนุมัติ)'
       );
     } else if (user.status === 'approved') {
       success('เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับ ${user.displayName}`);
@@ -212,7 +253,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...currentUser,
       displayName: displayName.trim(),
     };
-    storageService.updateUser(updated);
+    await storageService.updateUser(updated);
     setCurrentUser(updated);
     storageService.setCurrentUser(updated);
     success('อัปเดตข้อมูลส่วนตัวสำเร็จ');
