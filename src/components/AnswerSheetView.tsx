@@ -21,11 +21,13 @@ interface AnswerSheetViewProps {
 
 /**
  * Single Answer Sheet Half (A5 size in A4 Landscape: 148.5mm x 210mm)
- * - 2 Main frames/tables: Left frame (ข้อ 1-20), Right frame (ข้อ 21-40)
- * - If total <= 20 questions, ONLY the left frame is shown!
- * - Large question numbers, closely aligned next to ก, ข, ค, ง
- * - Full-width wide dotted lines for ชื่อ-สกุล, เลขที่, วันที่สอบ
- * - Clean: No bottom footer, No extra clutter text
+ * - 3 Separate Tables / Frames with clear distinct borders:
+ *     Table 1 (Left): ข้อ 1 - 15
+ *     Table 2 (Center): ข้อ 16 - 30
+ *     Table 3 (Right): ข้อ 31 - 45
+ * - Table format: cells share borders (border-collapse: collapse), numbers adjacent to choices
+ * - Row 15 touches the bottom margin to maximize cell height & number font size!
+ * - Clean student info header and instruction pill matching the standard design
  */
 const SingleAnswerSheetHalf: React.FC<{
   exam: Exam;
@@ -33,179 +35,194 @@ const SingleAnswerSheetHalf: React.FC<{
   copyIndex: number;
 }> = ({ exam, qrCodeUrl, copyIndex }) => {
   const totalQ = exam.questionCount;
+  const choiceCount = exam.choiceCount || 4;
 
-  // Divided into 2 main tables:
-  // Left table: ข้อ 1 - 20 (or up to 20)
-  // Right table: ข้อ 21 - 40 (only if totalQ > 20)
-  let leftQuestions: number[] = [];
-  let rightQuestions: number[] = [];
+  const thaiLabels = ['ก', 'ข', 'ค', 'ง', 'จ'].slice(0, choiceCount);
+  const latinLabels = ['A', 'B', 'C', 'D', 'E'].slice(0, choiceCount);
 
-  if (totalQ <= 20) {
-    // If <= 20 questions: ONLY show left frame!
-    leftQuestions = Array.from({ length: totalQ }, (_, i) => i + 1);
-    rightQuestions = [];
-  } else if (totalQ <= 40) {
-    // 1-20 on left, 21-totalQ on right
-    leftQuestions = Array.from({ length: 20 }, (_, i) => i + 1);
-    rightQuestions = Array.from({ length: totalQ - 20 }, (_, i) => i + 21);
-  } else {
-    // If > 40 questions (e.g. 50 or 60), cleanly divide in two halves
-    const half = Math.ceil(totalQ / 2);
-    leftQuestions = Array.from({ length: half }, (_, i) => i + 1);
-    rightQuestions = Array.from({ length: totalQ - half }, (_, i) => i + half + 1);
-  }
+  // 3 Fixed Tables of 15 rows each
+  const tablesConfig = [
+    { start: 1, end: 15 },
+    { start: 16, end: 30 },
+    { start: 31, end: 45 },
+  ];
 
-  const choiceLabels =
-    exam.choiceLabelType === 'latin'
-      ? ['A', 'B', 'C', 'D', 'E'].slice(0, exam.choiceCount)
-      : ['ก', 'ข', 'ค', 'ง', 'จ'].slice(0, exam.choiceCount);
+  const renderTable = (startQ: number, endQ: number, tableIdx: number) => {
+    const rows = Array.from({ length: 15 }, (_, i) => startQ + i);
 
-  const renderQuestionTable = (questions: number[]) => (
-    <div className="border-2 border-slate-900 rounded-lg overflow-hidden bg-white shadow-2xs flex-1">
-      {/* Table Header: ข้อ ชิดกับ ก ข ค ง */}
-      <div className="bg-slate-200 border-b-2 border-slate-900 py-1 px-2 flex items-center justify-center gap-2.5 text-xs font-black text-slate-950">
-        <span className="w-9 text-right font-black text-xs font-mono">ข้อ</span>
-        <div className="flex items-center gap-2">
-          {choiceLabels.map((lbl) => (
-            <span key={lbl} className="w-[23px] text-center font-black text-xs">
-              {lbl}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Question Rows: ตัวเลขข้อใหญ่มาก เห็นชัดเจน และชิดกับ ก,ข,ค,ง */}
-      <div className="divide-y divide-slate-200">
-        {questions.map((qNum) => (
-          <div
-            key={qNum}
-            className="py-[2.5px] px-2 flex items-center justify-center gap-2.5 hover:bg-slate-50"
-          >
-            {/* Question Number: ใหญ่ ชัดเจนมาก */}
-            <span className="w-9 font-mono font-black text-slate-950 text-sm sm:text-base text-right pr-0.5">
-              {qNum}.
-            </span>
-            {/* Choice Bubbles: ชิดติดกับตัวเลขข้อ */}
-            <div className="flex items-center gap-2">
-              {choiceLabels.map((lbl) => (
-                <div
+    return (
+      <div
+        key={tableIdx}
+        className="flex-1 flex flex-col border-2 border-slate-950 bg-white rounded-xs overflow-hidden shadow-2xs"
+      >
+        <table className="w-full h-full border-collapse border-slate-950 text-center select-none table-fixed">
+          <thead>
+            {/* Header Row 1: ก ข ค ง */}
+            <tr className="bg-rose-100/90 text-slate-950 font-black text-xs border-b border-slate-900">
+              <th
+                rowSpan={2}
+                className="border-r border-slate-900 w-[24%] py-0.5 text-center font-black text-xs font-mono"
+              >
+                ข้อ
+              </th>
+              {thaiLabels.map((lbl) => (
+                <th
                   key={lbl}
-                  className="w-[23px] h-[23px] rounded-xs border-2 border-slate-900 flex items-center justify-center text-xs font-mono font-black text-slate-950 bg-white shadow-2xs"
+                  className="border-r border-slate-900 last:border-r-0 py-0.5 text-center font-black text-xs"
                 >
                   {lbl}
-                </div>
+                </th>
               ))}
-            </div>
-          </div>
-        ))}
+            </tr>
+            {/* Header Row 2: A B C D */}
+            <tr className="bg-rose-100/90 text-slate-800 text-[10px] font-bold border-b-2 border-slate-950">
+              {latinLabels.map((lbl) => (
+                <th
+                  key={lbl}
+                  className="border-r border-slate-900 last:border-r-0 py-0 text-center font-mono leading-tight"
+                >
+                  {lbl}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((qNum) => {
+              const isActive = qNum <= totalQ;
+
+              return (
+                <tr
+                  key={qNum}
+                  className="border-b border-slate-900 last:border-b-0 h-[8.6mm]"
+                >
+                  {/* Question Number Cell: snug against left border, shaded background */}
+                  <td className="border-r border-slate-900 bg-rose-50/80 font-mono font-black text-slate-950 text-xs sm:text-sm text-center p-0">
+                    {isActive ? qNum : ''}
+                  </td>
+
+                  {/* Choice square cells: empty, adjacent, sharing table borders */}
+                  {Array.from({ length: choiceCount }, (_, cIdx) => (
+                    <td
+                      key={cIdx}
+                      className={`border-r border-slate-900 last:border-r-0 p-0 text-center ${
+                        isActive ? 'bg-white' : 'bg-slate-50/40'
+                      }`}
+                    >
+                      {/* Clean empty box for student to draw X mark */}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="w-[148.5mm] h-[210mm] max-h-[210mm] p-[5mm_6mm] relative flex flex-col justify-between box-border overflow-hidden bg-white text-slate-900 border border-slate-300">
+    <div className="w-[148.5mm] h-[210mm] max-h-[210mm] p-[3mm_4mm] relative flex flex-col justify-between box-border overflow-hidden bg-white text-slate-900 border border-slate-300">
       {/* 4 Corner Alignment Registration Marks (OMR fiducials for skew correction) */}
-      <div className="absolute top-[4.5mm] left-[4.5mm] w-[5.5mm] h-[5.5mm] bg-black pointer-events-none" />
-      <div className="absolute top-[4.5mm] right-[4.5mm] w-[5.5mm] h-[5.5mm] bg-black pointer-events-none" />
-      <div className="absolute bottom-[4.5mm] left-[4.5mm] w-[5.5mm] h-[5.5mm] bg-black pointer-events-none" />
-      <div className="absolute bottom-[4.5mm] right-[4.5mm] w-[5.5mm] h-[5.5mm] bg-black pointer-events-none" />
+      <div className="absolute top-[3.5mm] left-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
+      <div className="absolute top-[3.5mm] right-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
+      <div className="absolute bottom-[3.5mm] left-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
+      <div className="absolute bottom-[3.5mm] right-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
 
-      {/* Sheet Content */}
-      <div className="flex-1 flex flex-col justify-between">
-        {/* Header Box with solid border */}
-        <div className="border-2 border-slate-900 rounded-lg p-2.5 bg-white shrink-0">
-          <div className="flex items-start justify-between gap-2 pb-1.5 border-b border-slate-800">
-            <div className="flex-1 min-w-0">
-              {/* Title: Only 'กระดาษคำตอบ' */}
-              <div className="flex items-center gap-1.5">
-                <h1 className="font-heading font-black text-base text-slate-950 leading-tight">
-                  กระดาษคำตอบ
-                </h1>
-                <span className="text-[10px] text-slate-500 font-mono">
-                  [แผ่นที่ {copyIndex}]
-                </span>
-              </div>
-
-              {/* Subject Info */}
-              <div className="text-[11px] text-slate-800 font-semibold pt-0.5 leading-tight truncate">
-                วิชา: <strong className="text-slate-950 font-bold">{exam.title}</strong>
-                {exam.gradeLevel ? (
-                  <> | ชั้น: <strong className="text-slate-950">{exam.gradeLevel}</strong></>
-                ) : null}
-                {exam.code ? (
-                  <> | รหัส: <strong className="text-slate-950 font-mono">{exam.code}</strong></>
-                ) : null}
-                {' '}| จำนวน: <strong className="text-slate-950">{exam.questionCount} ข้อ</strong>
-              </div>
-            </div>
-
-            {/* Exam QR Code */}
-            {qrCodeUrl && (
-              <div className="flex flex-col items-center justify-center p-0.5 bg-white border border-slate-900 rounded shrink-0 shadow-2xs">
-                <img
-                  src={qrCodeUrl}
-                  alt="Exam QR Code"
-                  className="w-11 h-11 object-contain"
-                />
-                <span className="text-[7px] font-mono font-bold text-slate-700 uppercase tracking-tighter">
-                  รหัสข้อสอบ
-                </span>
-              </div>
-            )}
+      {/* Sheet Content: Stretches fully from top to bottom */}
+      <div className="flex-1 flex flex-col justify-between h-full pt-1 px-1 pb-0.5">
+        {/* Top Header: Title & QR Code */}
+        <div className="flex items-center justify-between gap-2 px-1 pb-1">
+          <div className="flex-1 text-center pl-10">
+            <h1 className="font-heading font-black text-base text-slate-950 tracking-wider">
+              กระดาษคำตอบ
+            </h1>
           </div>
 
-          {/* Student Fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ (กว้าง เต็มพื้นที่ ชัดเจน) */}
-          <div className="pt-2 text-xs text-slate-900 space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center flex-1 min-w-0">
-                <span className="font-bold text-slate-950 shrink-0 text-xs">ชื่อ - สกุล:</span>
-                <div className="ml-2 flex-1 border-b-2 border-dotted border-slate-700 h-[15px] relative overflow-hidden">
-                  <span className="absolute inset-x-0 bottom-0 text-slate-700 tracking-[0.25em] overflow-hidden whitespace-nowrap text-[11px] leading-none pointer-events-none select-none">
-                    ....................................................................................................
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center w-32 shrink-0">
-                <span className="font-bold text-slate-950 shrink-0 text-xs">เลขที่:</span>
-                <div className="ml-2 flex-1 border-b-2 border-dotted border-slate-700 h-[15px] relative overflow-hidden">
-                  <span className="absolute inset-x-0 bottom-0 text-slate-700 tracking-[0.25em] overflow-hidden whitespace-nowrap text-[11px] leading-none pointer-events-none select-none">
-                    ..............................
-                  </span>
-                </div>
+          {/* Top Right: QR Code Box */}
+          {qrCodeUrl && (
+            <div className="flex flex-col items-center justify-center p-0.5 bg-white border border-slate-900 rounded shrink-0 shadow-2xs">
+              <img
+                src={qrCodeUrl}
+                alt="Exam QR Code"
+                className="w-10 h-10 object-contain"
+              />
+              <span className="text-[6.5px] font-mono font-bold text-slate-700 uppercase tracking-tighter">
+                รหัสข้อสอบ
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Student Info Box (Rounded border container matching images.png) */}
+        <div className="border border-slate-900 rounded-xl p-1.5 px-2.5 bg-white text-[10.5px] leading-snug space-y-1 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center flex-1 min-w-0">
+              <span className="font-bold text-slate-950 shrink-0">วิชา:</span>
+              <span className="font-bold text-slate-950 ml-1.5 truncate max-w-[200px]">
+                {exam.title}
+              </span>
+              {exam.gradeLevel ? (
+                <span className="ml-1 text-slate-700">({exam.gradeLevel})</span>
+              ) : null}
+            </div>
+            <span className="text-[9px] font-mono text-slate-500 font-bold shrink-0">
+              [แผ่นที่ {copyIndex}]
+            </span>
+          </div>
+
+          {/* Student Fields: ชื่อ, ชั้น, เลขที่ */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center flex-1 min-w-0">
+              <span className="font-bold text-slate-950 shrink-0">ชื่อ:</span>
+              <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
+                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
+                  ...........................................................................
+                </span>
               </div>
             </div>
 
-            <div className="flex items-center">
-              <span className="font-bold text-slate-950 shrink-0 text-xs">วันที่สอบ:</span>
-              <div className="ml-2 flex-1 border-b-2 border-dotted border-slate-700 h-[15px] relative overflow-hidden">
-                <span className="absolute inset-x-0 bottom-0 text-slate-700 tracking-[0.25em] overflow-hidden whitespace-nowrap text-[11px] leading-none pointer-events-none select-none">
-                  ....................................................................................................
+            <div className="flex items-center w-20 shrink-0">
+              <span className="font-bold text-slate-950 shrink-0">ชั้น:</span>
+              <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
+                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
+                  ................
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center w-20 shrink-0">
+              <span className="font-bold text-slate-950 shrink-0">เลขที่:</span>
+              <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
+                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
+                  ................
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Simple Instruction Note */}
-          <div className="mt-1.5 pt-1 border-t border-slate-200 text-[10px] text-slate-600 leading-tight">
-            📌 <strong>คำแนะนำ:</strong> กากบาท (X) หรือระบายในช่องสี่เหลี่ยม [ ] เพียงตัวเลือกเดียวต่อหนึ่งข้อ
+          {/* Date Field */}
+          <div className="flex items-center">
+            <span className="font-bold text-slate-950 shrink-0">วันที่:</span>
+            <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
+              <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
+                ........................................................................................................................
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* 2 Main Question Tables / Frames (กรอบซ้าย: ข้อ 1-20, กรอบขวา: ข้อ 21-40) */}
-        {rightQuestions.length === 0 ? (
-          /* หากมี 20 ข้อ จะแสดงเฉพาะกรอบด้านซ้ายเท่านั้น */
-          <div className="my-2 flex-1 flex justify-center items-start w-full">
-            <div className="w-full max-w-[260px]">
-              {renderQuestionTable(leftQuestions)}
-            </div>
+        {/* Centered Instruction Pill Badge (matching images.png) */}
+        <div className="flex justify-center my-1 shrink-0">
+          <div className="bg-slate-600 text-white text-[9px] font-bold px-3 py-0.5 rounded-xs tracking-wide shadow-2xs">
+            ให้นักเรียนทำเครื่องหมาย X ลงบนช่องที่เลือกคำตอบ
           </div>
-        ) : (
-          /* หากมีมากกว่า 20 ข้อ แบ่ง 2 กรอบหลัก: ข้อ 1-20 ซ้าย, ข้อ 21-40 ขวา */
-          <div className="grid grid-cols-2 gap-2 my-2 flex-1 items-start w-full">
-            {renderQuestionTable(leftQuestions)}
-            {renderQuestionTable(rightQuestions)}
-          </div>
-        )}
+        </div>
+
+        {/* 3 Main Tables (3 กรอบชัดเจน): ตารางซ้าย 1-15, ตารางกลาง 16-30, ตารางขวา 31-45 */}
+        {/* Row 15 touches the bottom margin to maximize cell height & number font size! */}
+        <div className="flex-1 flex gap-2 w-full items-stretch min-h-0 mb-1">
+          {tablesConfig.map((cfg, idx) => renderTable(cfg.start, cfg.end, idx))}
+        </div>
       </div>
     </div>
   );
@@ -245,7 +262,6 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
       const containerWidth = scrollContainerRef.current.clientWidth - 32;
       const containerHeight = scrollContainerRef.current.clientHeight - 32;
 
-      // A4 Landscape: 1123px width x 794px height
       const a4Width = 1123;
       const a4Height = 794;
 
@@ -273,7 +289,6 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
     }
 
     try {
-      // Create dedicated, isolated iframe for 100% pristine answer sheet print
       const printIframe = document.createElement('iframe');
       printIframe.style.position = 'fixed';
       printIframe.style.right = '0';
@@ -389,12 +404,12 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
                 กระดาษคำตอบ: {exam.title}
               </h2>
               <span className="hidden sm:inline-flex px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold">
-                A4 แนวนอน (29.7 × 21 ซม.) • 2 ชุด/แผ่น
+                A4 แนวนอน • 2 ชุด/แผ่น (3 ตาราง: 1-15, 16-30, 31-45)
               </span>
             </div>
             <p className="text-[11px] text-slate-400 truncate">
               {exam.gradeLevel ? `${exam.gradeLevel} • ` : ''}
-              {exam.questionCount} ข้อ ({exam.choiceCount} ตัวเลือก) • ประหยัดกระดาษ ตัดตรงกลางได้ 2 แผ่น
+              {exam.questionCount} ข้อ ({exam.choiceCount} ตัวเลือก) • ตาราง 3 กรอบชัดเจน ช่องใหญ่เต็มกระดาษ
             </p>
           </div>
         </div>

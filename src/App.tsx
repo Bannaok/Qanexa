@@ -34,6 +34,7 @@ const MainAppContent: React.FC = () => {
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
 
   // Active exam for scanning / printing
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [activeScanExam, setActiveScanExam] = useState<Exam | null>(null);
   const [activePrintExam, setActivePrintExam] = useState<Exam | null>(null);
 
@@ -69,16 +70,13 @@ const MainAppContent: React.FC = () => {
       return;
     }
     setActiveScanExam(exam);
+    setIsScannerOpen(true);
   };
 
   const handleQuickScanFromHome = () => {
-    if (exams.length === 0) {
-      warning('ยังไม่มีชุดข้อสอบในระบบ', 'กรุณาสร้างชุดข้อสอบและเฉลยก่อนเริ่มสแกน');
-      setCurrentTab('exams');
-      return;
-    }
-    // Launch scan on the most recently modified or created exam
-    setActiveScanExam(exams[0]);
+    // Launch directly in Universal QR Auto-Detect Mode (สแกนวิชาไหนก็ได้จากหน้าหลัก)
+    setActiveScanExam(null);
+    setIsScannerOpen(true);
   };
 
   const handleOpenPrint = (exam: Exam) => {
@@ -211,12 +209,16 @@ const MainAppContent: React.FC = () => {
         examToEdit={editingExam}
       />
 
-      {/* Full Screen Scanner Modal */}
-      {activeScanExam && (
+      {/* Full Screen Mobile Portrait Scanner Modal */}
+      {isScannerOpen && (
         <ScannerModal
-          isOpen={!!activeScanExam}
+          isOpen={isScannerOpen}
           exam={activeScanExam}
-          onClose={() => setActiveScanExam(null)}
+          allExams={exams}
+          onClose={() => {
+            setIsScannerOpen(false);
+            setActiveScanExam(null);
+          }}
           onScanSaved={refreshExams}
         />
       )}

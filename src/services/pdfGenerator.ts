@@ -192,76 +192,108 @@ export const pdfGenerator = {
         ctx.fillText('รหัสข้อสอบ', offsetX + halfWidth - padX - 50 - 120, padY + 185);
       }
 
-      // Instruction
-      ctx.font = '16px "Sarabun", sans-serif';
-      ctx.fillStyle = '#334155';
-      ctx.fillText('📌 คำแนะนำ: กากบาท (X) หรือระบายในช่องสี่เหลี่ยม [ ] เพียงตัวเลือกเดียว', offsetX + padX + 50, padY + 255);
+      // Instruction Badge (เหมือน images.png)
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(offsetX + padX + 50 + (headerBoxW - 380) / 2, padY + 245, 380, 26);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 15px "Sarabun", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('ให้นักเรียนทำเครื่องหมาย X ลงบนช่องที่เลือกคำตอบ', offsetX + padX + 50 + headerBoxW / 2, padY + 263);
+      ctx.textAlign = 'left';
 
-      // Draw question tables
-      const tablesToDraw = rightQuestions.length === 0 ? [leftQuestions] : [leftQuestions, rightQuestions];
-      const numTables = tablesToDraw.length;
-      const gridStartY = padY + 280;
+      // 3 Tables / Frames (Table 1: 1-15, Table 2: 16-30, Table 3: 31-45)
+      // Row 15 touches the bottom margin to maximize cell height & number font size!
+      const tablesConfig = [
+        { start: 1, end: 15 },
+        { start: 16, end: 30 },
+        { start: 31, end: 45 },
+      ];
+
+      const gridStartY = padY + 285;
       const totalGridW = headerBoxW;
-      const tableW = numTables === 1 ? Math.min(520, totalGridW) : (totalGridW - 20) / 2;
-      const gridStartX = numTables === 1 ? offsetX + padX + 50 + (totalGridW - tableW) / 2 : offsetX + padX + 50;
+      const tableGap = 16;
+      const tableW = (totalGridW - tableGap * 2) / 3;
+      const gridEndY = height - padY - 20; // Extends right to bottom margin!
+      const availableGridH = gridEndY - gridStartY;
+      const headerH1 = 28;
+      const headerH2 = 22;
+      const totalHeaderH = headerH1 + headerH2;
+      const rowH = (availableGridH - totalHeaderH) / 15;
 
-      tablesToDraw.forEach((qList, tIdx) => {
-        const colX = gridStartX + tIdx * (tableW + 20);
+      tablesConfig.forEach((cfg, tIdx) => {
+        const colX = offsetX + padX + 50 + tIdx * (tableW + tableGap);
 
-        // Column header
-        ctx.fillStyle = '#e2e8f0';
-        ctx.fillRect(colX, gridStartY, tableW, 40);
+        // Outer border for each table (กรอบชัดเจนในการแบ่ง)
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(colX, gridStartY, tableW, availableGridH);
+
+        // Header Background
+        ctx.fillStyle = '#ffe4e6'; // soft rose
+        ctx.fillRect(colX, gridStartY, tableW, totalHeaderH);
+
+        // Dividing lines in header
         ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(colX, gridStartY, tableW, 40);
+        ctx.lineWidth = 1.5;
 
-        const boxSize = 28;
-        const boxGap = 12;
-        const totalBoxW = choiceLabels.length * boxSize + (choiceLabels.length - 1) * boxGap;
-        const numberW = 50;
-        const totalRowW = numberW + 10 + totalBoxW;
-        const rowStartX = colX + (tableW - totalRowW) / 2;
+        const numColW = tableW * 0.24;
+        const choiceColW = (tableW - numColW) / choiceLabels.length;
 
+        // "ข้อ" cell (spans both header rows)
+        ctx.strokeRect(colX, gridStartY, numColW, totalHeaderH);
         ctx.fillStyle = '#0f172a';
-        ctx.font = 'bold 20px "Sarabun", sans-serif';
-        ctx.fillText('ข้อ', rowStartX + 10, gridStartY + 28);
+        ctx.font = 'bold 18px "Sarabun", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ข้อ', colX + numColW / 2, gridStartY + totalHeaderH / 2 + 6);
 
-        choiceLabels.forEach((lbl, idx) => {
-          const bx = rowStartX + numberW + 10 + idx * (boxSize + boxGap);
-          ctx.fillText(lbl, bx + 8, gridStartY + 28);
-        });
+        // Header rows: Row 1 (ก ข ค ง), Row 2 (A B C D)
+        const latinLabels = ['A', 'B', 'C', 'D', 'E'].slice(0, choiceLabels.length);
+        choiceLabels.forEach((lbl, cIdx) => {
+          const cx = colX + numColW + cIdx * choiceColW;
+          ctx.strokeRect(cx, gridStartY, choiceColW, headerH1);
+          ctx.strokeRect(cx, gridStartY + headerH1, choiceColW, headerH2);
 
-        // Question rows: Numbers LARGE and closely adjacent to choice boxes
-        let rowY = gridStartY + 40;
-        const maxRows = Math.max(leftQuestions.length, rightQuestions.length || 1);
-        const availableH = height - padY - 60 - rowY;
-        const rowH = Math.min(48, Math.max(34, availableH / maxRows));
-
-        qList.forEach((qNum) => {
-          ctx.strokeStyle = '#e2e8f0';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(colX, rowY, tableW, rowH);
-
-          // Large question number
           ctx.fillStyle = '#0f172a';
-          ctx.font = 'bold 20px monospace';
-          ctx.fillText(`${qNum}.`, rowStartX + 5, rowY + rowH / 2 + 7);
+          ctx.font = 'bold 16px "Sarabun", sans-serif';
+          ctx.fillText(lbl, cx + choiceColW / 2, gridStartY + headerH1 - 8);
 
-          // Choices right next to number
-          choiceLabels.forEach((lbl, idx) => {
-            const bx = rowStartX + numberW + 10 + idx * (boxSize + boxGap);
-            const by = rowY + (rowH - boxSize) / 2;
-            ctx.strokeStyle = '#0f172a';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(bx, by, boxSize, boxSize);
-            ctx.font = 'bold 17px "Sarabun", sans-serif';
-            ctx.fillStyle = '#0f172a';
-            ctx.fillText(lbl, bx + 8, by + 20);
-          });
-
-          rowY += rowH;
+          ctx.fillStyle = '#334155';
+          ctx.font = 'bold 13px monospace';
+          ctx.fillText(latinLabels[cIdx], cx + choiceColW / 2, gridStartY + totalHeaderH - 6);
         });
+
+        // 15 Question Rows (Table grid cells share borders, adjacent)
+        for (let r = 0; r < 15; r++) {
+          const qNum = cfg.start + r;
+          const isActive = qNum <= totalQ;
+          const ry = gridStartY + totalHeaderH + r * rowH;
+
+          // Number cell: shaded, left aligned to table border
+          ctx.fillStyle = isActive ? '#fff1f2' : '#f8fafc';
+          ctx.fillRect(colX, ry, numColW, rowH);
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(colX, ry, numColW, rowH);
+
+          if (isActive) {
+            ctx.fillStyle = '#0f172a';
+            ctx.font = 'bold 18px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${qNum}`, colX + numColW / 2, ry + rowH / 2 + 6);
+          }
+
+          // Choice cells (empty square boxes)
+          choiceLabels.forEach((_, cIdx) => {
+            const cx = colX + numColW + cIdx * choiceColW;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(cx, ry, choiceColW, rowH);
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cx, ry, choiceColW, rowH);
+          });
+        }
       });
+      ctx.textAlign = 'left';
 
     }
 
