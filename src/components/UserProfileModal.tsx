@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../services/authContext';
 import { useToast } from '../services/toastContext';
-import { X, User, Key, Check, ShieldCheck, Mail, Lock } from 'lucide-react';
+import { X, User, Key, Check, ShieldCheck, Lock } from 'lucide-react';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -9,8 +9,8 @@ interface UserProfileModalProps {
 }
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, isAdmin, updateProfile, changeAdminPassword } = useAuth();
-  const { error } = useToast();
+  const { currentUser, isAdmin, updateProfile, changePassword, changeAdminPassword } = useAuth();
+  const { error, success } = useToast();
 
   const [displayName, setDisplayName] = useState(currentUser?.displayName || '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -34,8 +34,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 6) {
-      error('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
+    if (newPassword.length < 4) {
+      error('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 4 ตัวอักษร');
       return;
     }
 
@@ -45,7 +45,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
     }
 
     setIsUpdating(true);
-    const res = await changeAdminPassword(currentPassword, newPassword);
+    let res;
+    if (isAdmin) {
+      res = await changeAdminPassword(currentPassword, newPassword);
+    } else {
+      res = await changePassword(newPassword, currentPassword);
+    }
     setIsUpdating(false);
 
     if (res.success) {
@@ -56,6 +61,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
       error(res.message);
     }
   };
+
+  const displayId = currentUser.username || currentUser.id;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 no-print animate-fadeIn">
@@ -68,7 +75,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
             </div>
             <div>
               <h3 className="font-heading font-bold text-lg text-slate-800">
-                ข้อมูลส่วนตัวและรหัสผ่าน (User Settings)
+                ข้อมูลส่วนตัวและรหัสผ่าน (User Profile)
               </h3>
               <p className="text-xs text-slate-500">
                 {isAdmin ? 'สิทธิ์ผู้ดูแลระบบ (Admin)' : 'สิทธิ์สมาชิกทั่วไป (Member)'}
@@ -85,22 +92,25 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
 
         {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Email Info */}
+          {/* User ID Info */}
           <div className="p-3.5 bg-white rounded-xl border border-slate-200 flex items-center gap-3">
-            <div className="p-2 bg-slate-50 rounded-lg border border-slate-200 text-slate-600">
-              <Mail className="w-4 h-4" />
+            <div className="p-2 bg-indigo-50 rounded-lg border border-indigo-100 text-indigo-600">
+              <User className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-xs text-slate-400">อีเมลบัญชี (Gmail / ID)</div>
-              <div className="text-sm font-semibold text-slate-800 truncate">{currentUser.email}</div>
+              <div className="text-xs text-slate-400">รหัสผู้ใช้งาน (User ID)</div>
+              <div className="text-sm font-bold text-slate-800 font-mono truncate">{displayId}</div>
             </div>
           </div>
 
-          {/* Section 1: Edit First Name - Last Name (Both Regular and Admin) */}
+          {/* Section 1: Edit First Name - Last Name (Both Regular Members and Admin) */}
           <form onSubmit={handleUpdateName} className="space-y-3">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              1. แก้ไข ชื่อ - นามสกุล
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                1. ชื่อ - นามสกุล
+              </h4>
+              <span className="text-[11px] text-indigo-600 font-medium">แก้ไขได้ตลอดเวลา</span>
+            </div>
             <div>
               <input
                 type="text"
@@ -115,7 +125,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               <button
                 type="submit"
                 disabled={isUpdating}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 <Check className="w-3.5 h-3.5" />
                 บันทึกชื่อ-นามสกุล
@@ -123,14 +133,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
             </div>
           </form>
 
-          {/* Section 2: Admin Password Change (Admin Only) */}
-          {isAdmin ? (
-            <form onSubmit={handleChangePassword} className="space-y-3 pt-4 border-t border-slate-100">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                <ShieldCheck className="w-4 h-4 text-purple-600" />
-                <span>2. เปลี่ยนรหัสผ่านระบบ Admin (Admin Password)</span>
-              </div>
+          {/* Section 2: Password Change (For both Admin & Members) */}
+          <form onSubmit={handleChangePassword} className="space-y-3 pt-4 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <Key className="w-4 h-4 text-purple-600" />
+              <span>2. เปลี่ยนรหัสผ่าน (Change Password)</span>
+            </div>
 
+            {isAdmin && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">รหัสผ่านปัจจุบัน</label>
                 <div className="relative">
@@ -145,53 +155,49 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                   />
                 </div>
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)</label>
-                <div className="relative">
-                  <Key className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="รหัสผ่านใหม่"
-                    className="w-full pl-9 pr-3.5 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    required
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร)</label>
+              <div className="relative">
+                <Key className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="รหัสผ่านใหม่"
+                  className="w-full pl-9 pr-3.5 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
               </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">ยืนยันรหัสผ่านใหม่</label>
-                <div className="relative">
-                  <Key className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง"
-                    className="w-full pl-9 pr-3.5 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  type="submit"
-                  disabled={isUpdating}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  <Key className="w-3.5 h-3.5" />
-                  บันทึกรหัสผ่านใหม่
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-500">
-              💡 สมาชิกทั่วไปเข้าสู่ระบบผ่าน Google Sign-In จึงไม่ต้องจัดการรหัสผ่านระบบ
             </div>
-          )}
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">ยืนยันรหัสผ่านใหม่</label>
+              <div className="relative">
+                <Key className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง"
+                  className="w-full pl-9 pr-3.5 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="submit"
+                disabled={isUpdating}
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Key className="w-3.5 h-3.5" />
+                บันทึกรหัสผ่านใหม่
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>

@@ -24,7 +24,7 @@ export const PendingApprovalView: React.FC<PendingApprovalViewProps> = ({ onOpen
             บัญชีของคุณกำลังรอการอนุมัติจากผู้ดูแลระบบ
           </h2>
           <p className="text-sm text-slate-500 leading-relaxed max-w-md mx-auto">
-            คุณได้เข้าสู่ระบบด้วยอีเมล <strong className="text-slate-700">{currentUser?.email}</strong> เรียบร้อยแล้ว แต่ต้องรอให้ Admin ทำการอนุมัติสิทธิ์ในระบบก่อนจึงจะเริ่มสร้างข้อสอบหรือสแกนกระดาษคำตอบได้
+            คุณได้เข้าสู่ระบบด้วยรหัสผู้ใช้ <strong className="text-slate-700 font-mono">{currentUser?.username || currentUser?.id}</strong> เรียบร้อยแล้ว แต่ต้องรอให้ Admin ทำการอนุมัติสิทธิ์ในระบบก่อนจึงจะเริ่มสร้างข้อสอบหรือสแกนกระดาษคำตอบได้
           </p>
         </div>
 

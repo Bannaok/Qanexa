@@ -3,16 +3,17 @@ import { AppSettings } from '../types';
 import { storageService } from '../services/storageService';
 import { useAuth } from '../services/authContext';
 import { useToast } from '../services/toastContext';
-import { X, Settings, Upload, Image, Clock, Check, Building, Users, ShieldCheck, Cloud } from 'lucide-react';
+import { X, Settings, Upload, Image, Clock, Check, Building, Users, ShieldCheck, Cloud, Smartphone } from 'lucide-react';
 import { ImageFallback } from './ImageFallback';
 import { MemberManagement } from './MemberManagement';
 import { CloudflareD1Tab } from './CloudflareD1Tab';
+import { PWABackendSettings } from './PWABackendSettings';
 
 interface AppSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSettingsSaved: (updated: AppSettings) => void;
-  initialTab?: 'general' | 'members' | 'cloudflare';
+  initialTab?: 'general' | 'members' | 'pwa' | 'cloudflare';
 }
 
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
@@ -23,7 +24,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 }) => {
   const { currentUser, isAdmin } = useAuth();
   const { success, error, warning } = useToast();
-  const [activeTab, setActiveTab] = useState<'general' | 'members' | 'cloudflare'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'general' | 'members' | 'pwa' | 'cloudflare'>(initialTab);
   const [settings, setSettings] = useState<AppSettings>(() => storageService.getSettings());
   const [appName, setAppName] = useState(settings.appName);
   const [appLogoUrl, setAppLogoUrl] = useState(settings.appLogoUrl);
@@ -136,6 +137,19 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               >
                 <Users className="w-4 h-4 text-purple-600" />
                 <span>จัดการสมาชิก (Members)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('pwa')}
+                className={`flex items-center gap-1.5 px-4 py-2 border-b-2 text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+                  activeTab === 'pwa'
+                    ? 'border-emerald-600 text-emerald-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Smartphone className="w-4 h-4 text-emerald-600" />
+                <span>แอปมือถือ (PWA Mobile)</span>
               </button>
 
               <button
@@ -283,6 +297,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
             <div className="space-y-4">
               <MemberManagement />
             </div>
+          ) : activeTab === 'pwa' ? (
+            <PWABackendSettings />
           ) : (
             <CloudflareD1Tab />
           )}

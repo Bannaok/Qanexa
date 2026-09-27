@@ -10,10 +10,12 @@ interface AuthContextType {
   isAdmin: boolean;
   isApproved: boolean;
   isPending: boolean;
+  login: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   loginAsAdmin: (id: string, password: string) => Promise<{ success: boolean; message?: string }>;
   loginWithGoogle: (email: string, displayName?: string, avatarUrl?: string) => Promise<{ success: boolean; isNewUser?: boolean; isPending?: boolean }>;
   logout: () => void;
   updateProfile: (displayName: string) => Promise<boolean>;
+  changePassword: (newPassword: string, currentPassword?: string) => Promise<{ success: boolean; message?: string }>;
   changeAdminPassword: (currentPass: string, newPass: string) => Promise<{ success: boolean; message?: string }>;
   refreshCurrentUser: () => Promise<void>;
   syncCloudData: () => Promise<void>;
@@ -34,7 +36,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       // 1. Sync User Profile and Approval Status from Cloudflare D1
       if (user.role !== 'admin') {
-        const remoteUser = await d1SyncService.fetchUserByEmail(user.email);
+        const lookup = user.email || user.username || user.id;
+        const remoteUser = await d1SyncService.fetchUserByEmail(lookup);
         if (remoteUser) {
           if (remoteUser.status !== user.status || remoteUser.role !== user.role || remoteUser.displayName !== user.displayName) {
             setCurrentUser(remoteUser);
@@ -61,7 +64,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user) {
       if (user.role !== 'admin') {
         try {
-          const remote = await d1SyncService.fetchUserByEmail(user.email);
+          const lookup = user.email || user.username || user.id;
+          const remote = await d1SyncService.fetchUserByEmail(lookup);
           if (remote) {
             setCurrentUser(remote);
             storageService.setCurrentUser(remote);
@@ -70,7 +74,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } catch {}
       }
-      const stored = storageService.getUserByEmail(user.email);
+      const lookup = user.email || user.username || user.id;
+      const stored = storageService.getUserByEmail(lookup);
       if (stored) {
         setCurrentUser(stored);
         storageService.setCurrentUser(stored);
@@ -121,46 +126,116 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [syncCloudData]);
 
-  const loginAsAdmin = async (id: string, password: string): Promise<{ success: boolean; message?: string }> => {
-    const normalizedId = id.trim().toLowerCase();
-    const storedPass = storageService.getAdminPassword();
+  const login = async (rawUsername: string, rawPassword: string): Promise<{ success: boolean; message?: string }> => {
+    const username = rawUsername.trim();
+    const password = rawPassword.trim();
 
-    if (normalizedId !== 'admin') {
-      return { success: false, message: 'รหัสผู้ใช้ไม่ถูกต้อง (ค่าเริ่มต้นคือ Admin)' };
+    if (!username || !password) {
+      return { success: false, message: 'กรุณากรอกรหัสผู้ใช้ (ID) และรหัสผ่าน' };
     }
 
-    if (password !== storedPass) {
-      return { success: false, message: 'รหัสผ่าน Admin ไม่ถูกต้อง' };
+    const lowerUser = username.toLowerCase();
+
+    // 1. Check if logging in as Admin
+    if (lowerUser === 'admin') {
+      const adminPass = storageService.getAdminPassword();
+      if (password !== adminPass) {
+        return { success: false, message: 'รหัสผ่าน Admin ไม่ถูกต้อง' };
+      }
+
+      let adminUser = storageService.getUsers().find((u) => u.role === 'admin' || u.username === 'admin');
+      if (!adminUser) {
+        adminUser = {
+          id: 'admin_root',
+          username: 'admin',
+          password: adminPass,
+          email: 'admin@system.local',
+          displayName: 'ผู้ดูแลระบบ (Admin)',
+          role: 'admin',
+          status: 'approved',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastLoginAt: new Date().toISOString(),
+          storageBytes: 154000,
+        };
+        await storageService.updateUser(adminUser);
+      } else {
+        adminUser = {
+          ...adminUser,
+          lastLoginAt: new Date().toISOString(),
+        };
+        await storageService.updateUser(adminUser);
+      }
+
+      setCurrentUser(adminUser);
+      storageService.setCurrentUser(adminUser);
+      success('เข้าสู่ระบบสำเร็จ', 'ยินดีต้อนรับ ผู้ดูแลระบบ (Admin)');
+      setTimeout(() => syncCloudData(), 50);
+      return { success: true };
     }
 
-    let adminUser = storageService.getUserByEmail('admin@system.local');
-    if (!adminUser) {
-      adminUser = {
-        id: 'admin_root',
-        email: 'admin@system.local',
-        displayName: 'ผู้ดูแลระบบ (Admin)',
-        role: 'admin',
-        status: 'approved',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        lastLoginAt: new Date().toISOString(),
-        storageBytes: 154000,
-      };
-      await storageService.updateUser(adminUser);
+    // 2. Check Member Login (ID and password)
+    let allUsers = storageService.getUsers();
+    let matchedUser = allUsers.find(
+      (u) =>
+        (u.username && u.username.toLowerCase() === lowerUser) ||
+        u.id.toLowerCase() === lowerUser ||
+        (u.email && u.email.toLowerCase() === lowerUser)
+    );
+
+    // If not found in local cache, attempt D1 sync to check if Admin created it on another machine
+    if (!matchedUser) {
+      try {
+        const remoteUsers = await d1SyncService.fetchUsers();
+        if (remoteUsers) {
+          storageService.saveUsers(remoteUsers);
+          matchedUser = remoteUsers.find(
+            (u) =>
+              (u.username && u.username.toLowerCase() === lowerUser) ||
+              u.id.toLowerCase() === lowerUser ||
+              (u.email && u.email.toLowerCase() === lowerUser)
+          );
+        }
+      } catch {}
+    }
+
+    if (!matchedUser) {
+      return { success: false, message: 'ไม่พบรหัสผู้ใช้ (ID) นี้ในระบบ กรุณาตรวจสอบหรือติดต่อ Admin' };
+    }
+
+    // Check password
+    if (matchedUser.password && matchedUser.password !== password) {
+      return { success: false, message: 'รหัสผ่านไม่ถูกต้อง' };
+    }
+
+    // Check status
+    if (matchedUser.status === 'rejected') {
+      return { success: false, message: 'บัญชีนี้ถูกระงับสิทธิ์การใช้งาน กรุณาติดต่อ Admin' };
+    }
+
+    matchedUser = {
+      ...matchedUser,
+      lastLoginAt: new Date().toISOString(),
+    };
+    await storageService.updateUser(matchedUser);
+
+    setCurrentUser(matchedUser);
+    storageService.setCurrentUser(matchedUser);
+
+    if (matchedUser.status === 'pending') {
+      info(
+        'บัญชีของคุณอยู่ระหว่างรอการอนุมัติ',
+        'ผู้ดูแลระบบ (Admin) ต้องอนุมัติสิทธิ์ก่อนเริ่มสร้างหรือสแกนข้อสอบ'
+      );
     } else {
-      adminUser.lastLoginAt = new Date().toISOString();
-      await storageService.updateUser(adminUser);
+      success('เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับ ${matchedUser.displayName || matchedUser.username}`);
     }
 
-    setCurrentUser(adminUser);
-    storageService.setCurrentUser(adminUser);
-    success('เข้าสู่ระบบสำเร็จ', 'ยินดีต้อนรับ ผู้ดูแลระบบ (Admin)');
-
-    // Trigger instant admin cloud sync
-    setTimeout(() => {
-      syncCloudData();
-    }, 50);
-
+    setTimeout(() => syncCloudData(), 50);
     return { success: true };
+  };
+
+  const loginAsAdmin = async (id: string, password: string): Promise<{ success: boolean; message?: string }> => {
+    return login(id, password);
   };
 
   const loginWithGoogle = async (
@@ -195,6 +270,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isNew = true;
         user = {
           id: 'user_' + Math.random().toString(36).substring(2, 10),
+          username: trimmedEmail.split('@')[0],
+          password: 'password123',
           email: trimmedEmail,
           displayName: displayName || trimmedEmail.split('@')[0],
           role: 'member',
@@ -282,6 +359,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
+  const changePassword = async (
+    newPass: string,
+    currentPass?: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    if (!currentUser) return { success: false, message: 'กรุณาเข้าสู่ระบบ' };
+
+    if (currentUser.role === 'admin') {
+      return changeAdminPassword(currentPass || '', newPass);
+    }
+
+    if (newPass.length < 4) {
+      return { success: false, message: 'รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 4 ตัวอักษร' };
+    }
+
+    const updated: UserProfile = {
+      ...currentUser,
+      password: newPass,
+    };
+    await storageService.updateUser(updated);
+    setCurrentUser(updated);
+    storageService.setCurrentUser(updated);
+    success('เปลี่ยนรหัสผ่านสำเร็จ', 'รหัสผ่านใหม่ถูกบันทึกเรียบร้อย');
+    return { success: true };
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -290,10 +392,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAdmin: currentUser?.role === 'admin',
         isApproved: currentUser?.status === 'approved',
         isPending: currentUser?.status === 'pending',
+        login,
         loginAsAdmin,
         loginWithGoogle,
         logout,
         updateProfile,
+        changePassword,
         changeAdminPassword,
         refreshCurrentUser,
         syncCloudData,

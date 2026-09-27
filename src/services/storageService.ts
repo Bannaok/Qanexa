@@ -32,6 +32,8 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 const DEFAULT_ADMIN: UserProfile = {
   id: 'admin_root',
+  username: 'admin',
+  password: '456789',
   email: 'admin@system.local',
   displayName: 'ผู้ดูแลระบบ (Admin)',
   role: 'admin',
@@ -64,7 +66,7 @@ const INITIAL_EXAMS: Exam[] = [
   },
   {
     id: 'exam-math-02',
-    title: 'คณิตศาสตร์พื้นฐาน ม.4 (หน่วยการเรียนรู้ที่ 1-3)',
+    title: 'คณิตศาสตร์พื้นฐาน ม.4',
     code: 'MATH-401',
     gradeLevel: 'ชั้นมัธยมศึกษาปีที่ 4',
     description: 'แบบทดสอบปรนัย 30 ข้อ 5 ตัวเลือก (ก-จ)',
@@ -125,12 +127,15 @@ export const storageService = {
   // Users Management
   getUsers(): UserProfile[] {
     const raw = localStorage.getItem(USERS_KEY);
+    let usersList: UserProfile[] = [];
     if (!raw) {
-      const defaultUsers: UserProfile[] = [
+      usersList = [
         DEFAULT_ADMIN,
         {
-          id: 'user_sample_1',
-          email: 'somchai.teacher@gmail.com',
+          id: 'user_teacher_1',
+          username: 'teacher1',
+          password: 'password123',
+          email: 'teacher1@system.local',
           displayName: 'อาจารย์ สมชาย ใจดี',
           role: 'member',
           status: 'approved',
@@ -139,24 +144,33 @@ export const storageService = {
           storageBytes: 1248000,
         },
         {
-          id: 'user_sample_2',
-          email: 'wannapa.kru@gmail.com',
+          id: 'user_teacher_2',
+          username: 'teacher2',
+          password: 'password123',
+          email: 'teacher2@system.local',
           displayName: 'ครู วรรณภา ศรีสุข',
           role: 'member',
-          status: 'pending',
+          status: 'approved',
           createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
           lastLoginAt: new Date(Date.now() - 3600000 * 6).toISOString(),
           storageBytes: 0,
         },
       ];
-      localStorage.setItem(USERS_KEY, JSON.stringify(defaultUsers));
-      return defaultUsers;
+      localStorage.setItem(USERS_KEY, JSON.stringify(usersList));
+    } else {
+      try {
+        usersList = JSON.parse(raw);
+      } catch {
+        usersList = [DEFAULT_ADMIN];
+      }
     }
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return [DEFAULT_ADMIN];
-    }
+
+    // Ensure all users have valid username and password fields
+    return usersList.map((u) => ({
+      ...u,
+      username: u.username || (u.id === 'admin_root' ? 'admin' : (u.email ? u.email.split('@')[0] : u.id)),
+      password: u.password || (u.role === 'admin' ? this.getAdminPassword() : '123456'),
+    }));
   },
 
   saveUsers(users: UserProfile[]): void {
@@ -164,29 +178,54 @@ export const storageService = {
     notifyLocalChange('users_updated');
   },
 
-  getUserByEmail(email: string): UserProfile | undefined {
+  getUserByUsername(username: string): UserProfile | undefined {
     const users = this.getUsers();
-    return users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    const lower = username.trim().toLowerCase();
+    return users.find(
+      (u) =>
+        (u.username && u.username.toLowerCase() === lower) ||
+        u.id.toLowerCase() === lower ||
+        (u.email && u.email.toLowerCase() === lower)
+    );
+  },
+
+  getUserByEmail(email: string): UserProfile | undefined {
+    return this.getUserByUsername(email);
   },
 
   async updateUser(updated: UserProfile): Promise<void> {
     const users = this.getUsers();
-    const index = users.findIndex((u) => u.id === updated.id || u.email.toLowerCase() === updated.email.toLowerCase());
+    const updatedUser: UserProfile = {
+      ...updated,
+      username: updated.username || updated.id,
+      password: updated.password || '123456',
+    };
+    const index = users.findIndex(
+      (u) =>
+        u.id === updatedUser.id ||
+        (u.username && updatedUser.username && u.username.toLowerCase() === updatedUser.username.toLowerCase()) ||
+        (u.email && updatedUser.email && u.email.toLowerCase() === updatedUser.email.toLowerCase())
+    );
     if (index >= 0) {
-      users[index] = { ...users[index], ...updated };
+      users[index] = { ...users[index], ...updatedUser };
     } else {
-      users.push(updated);
+      users.push(updatedUser);
     }
     this.saveUsers(users);
 
     // If current logged-in user is updated, keep session in sync
     const current = this.getCurrentUser();
-    if (current && (current.id === updated.id || current.email.toLowerCase() === updated.email.toLowerCase())) {
-      this.setCurrentUser({ ...current, ...updated });
+    if (
+      current &&
+      (current.id === updatedUser.id ||
+        (current.username && current.username.toLowerCase() === updatedUser.username.toLowerCase()) ||
+        (current.email && current.email.toLowerCase() === (updatedUser.email || '').toLowerCase()))
+    ) {
+      this.setCurrentUser({ ...current, ...updatedUser });
     }
 
     // Direct Cloudflare D1 Sync
-    await d1SyncService.saveUser(updated).catch(() => {});
+    await d1SyncService.saveUser(updatedUser).catch(() => {});
   },
 
   async deleteUser(userId: string): Promise<void> {
@@ -243,11 +282,18 @@ export const storageService = {
     if (!currentUser) return allExams;
     if (currentUser.role === 'admin') return allExams;
 
-    const email = currentUser.email.toLowerCase();
+    const userKeys = [
+      (currentUser.username || '').toLowerCase(),
+      (currentUser.id || '').toLowerCase(),
+      (currentUser.email || '').toLowerCase(),
+    ].filter(Boolean);
+
     return allExams.filter((e) => {
+      const creator = (e.createdBy || '').toLowerCase();
       return (
-        (e.createdBy && e.createdBy.toLowerCase() === email) ||
-        e.createdBy === 'admin@system.local' ||
+        userKeys.includes(creator) ||
+        creator === 'admin@system.local' ||
+        creator === 'admin' ||
         e.id.startsWith('exam-')
       );
     });
@@ -315,8 +361,16 @@ export const storageService = {
     if (!currentUser) return all;
     if (currentUser.role === 'admin') return all;
 
-    const email = currentUser.email.toLowerCase();
-    return all.filter((r) => r.scannedByEmail && r.scannedByEmail.toLowerCase() === email);
+    const userKeys = [
+      (currentUser.username || '').toLowerCase(),
+      (currentUser.id || '').toLowerCase(),
+      (currentUser.email || '').toLowerCase(),
+    ].filter(Boolean);
+
+    return all.filter((r) => {
+      const scanner = (r.scannedByEmail || '').toLowerCase();
+      return userKeys.includes(scanner);
+    });
   },
 
   getAllScanResultsRaw(): ScanResult[] {
@@ -399,18 +453,16 @@ export const storageService = {
         }
       }
 
+      const userIdentifier = (activeUser.email || activeUser.username || activeUser.id).toLowerCase();
+
       // 3. Sync Exams with TRUE DELETION PROPAGATION:
-      // When D1 is online:
-      // - If teacher: D1 returns teacher's exams. Any exam created locally that isn't on D1 gets pushed,
-      //   BUT if it was deleted on D1, it reflects properly.
       const remoteExams = await d1SyncService.fetchExams(
-        activeUser.email,
+        activeUser.email || activeUser.username || activeUser.id,
         activeUser.role
       );
 
       if (remoteExams !== null) {
         const localExams = this.getAllExamsRaw();
-        const userEmail = activeUser.email.toLowerCase();
         const isAdmin = activeUser.role === 'admin';
 
         if (isAdmin) {
@@ -418,10 +470,8 @@ export const storageService = {
           this.saveExams(remoteExams);
         } else {
           // For Teacher:
-          // Keep other teachers' exams or starter system exams that belong to other users untouched,
-          // BUT for this teacher's own exams, mirror the remote list completely!
           const nonUserExams = localExams.filter(
-            (e) => e.createdBy && e.createdBy.toLowerCase() !== userEmail
+            (e) => e.createdBy && e.createdBy.toLowerCase() !== userIdentifier
           );
           
           // Merge: remote teacher exams + non-user exams
@@ -433,13 +483,12 @@ export const storageService = {
       // 4. Sync Scan Results with TRUE DELETION PROPAGATION:
       const remoteScans = await d1SyncService.fetchScanResults(
         undefined,
-        activeUser.email,
+        activeUser.email || activeUser.username || activeUser.id,
         activeUser.role
       );
 
       if (remoteScans !== null) {
         const localScans = this.getAllScanResultsRaw();
-        const userEmail = activeUser.email.toLowerCase();
         const isAdmin = activeUser.role === 'admin';
 
         if (isAdmin) {
@@ -447,7 +496,7 @@ export const storageService = {
         } else {
           // Replace teacher's scans with exact remote scans (deletions reflected instantly)
           const nonUserScans = localScans.filter(
-            (s) => s.scannedByEmail && s.scannedByEmail.toLowerCase() !== userEmail
+            (s) => s.scannedByEmail && s.scannedByEmail.toLowerCase() !== userIdentifier
           );
           const finalScans = [...remoteScans, ...nonUserScans];
           this.saveScanResults(finalScans);
@@ -468,18 +517,29 @@ export const storageService = {
 
   updateUserLocalOnly(updated: UserProfile): void {
     const users = this.getUsers();
-    const index = users.findIndex((u) => u.id === updated.id || u.email.toLowerCase() === updated.email.toLowerCase());
+    const updatedUser: UserProfile = {
+      ...updated,
+      username: updated.username || updated.id,
+      password: updated.password || '123456',
+    };
+    const index = users.findIndex(
+      (u) =>
+        u.id === updatedUser.id ||
+        (u.username && updatedUser.username && u.username.toLowerCase() === updatedUser.username.toLowerCase()) ||
+        (u.email && updatedUser.email && u.email.toLowerCase() === updatedUser.email.toLowerCase())
+    );
     if (index >= 0) {
-      users[index] = { ...users[index], ...updated };
+      users[index] = { ...users[index], ...updatedUser };
     } else {
-      users.push(updated);
+      users.push(updatedUser);
     }
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
   },
 
-  recalculateUserStorage(email: string): void {
+  recalculateUserStorage(userIdentifier: string): void {
+    const lower = (userIdentifier || '').toLowerCase();
     const results = this.getAllScanResultsRaw().filter(
-      (r) => r.scannedByEmail && r.scannedByEmail.toLowerCase() === email.toLowerCase()
+      (r) => r.scannedByEmail && r.scannedByEmail.toLowerCase() === lower
     );
     const totalBytes = results.reduce(
       (acc, r) => acc + (r.imageSizeBytes || (r.scannedImageUrl?.length || 0)),
@@ -487,12 +547,22 @@ export const storageService = {
     );
 
     const users = this.getUsers();
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    const user = users.find(
+      (u) =>
+        (u.username && u.username.toLowerCase() === lower) ||
+        u.id.toLowerCase() === lower ||
+        (u.email && u.email.toLowerCase() === lower)
+    );
     if (user) {
       user.storageBytes = totalBytes;
       this.saveUsers(users);
       const current = this.getCurrentUser();
-      if (current && current.email.toLowerCase() === email.toLowerCase()) {
+      if (
+        current &&
+        ((current.username && current.username.toLowerCase() === lower) ||
+          current.id.toLowerCase() === lower ||
+          (current.email && current.email.toLowerCase() === lower))
+      ) {
         current.storageBytes = totalBytes;
         this.setCurrentUser(current);
       }

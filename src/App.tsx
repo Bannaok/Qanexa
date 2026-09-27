@@ -13,7 +13,6 @@ import { ScannerModal } from './components/ScannerModal';
 import { AnswerSheetView } from './components/AnswerSheetView';
 import { PendingApprovalView } from './components/PendingApprovalView';
 import { CenteredLoginForm } from './components/CenteredLoginForm';
-import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { storageService } from './services/storageService';
 import { AppSettings, Exam } from './types';
 
@@ -29,7 +28,7 @@ const MainAppContent: React.FC = () => {
   // Modals state
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'members'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'members' | 'pwa' | 'cloudflare'>('general');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCreateExamOpen, setIsCreateExamOpen] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -109,7 +108,7 @@ const MainAppContent: React.FC = () => {
     setIsCreateExamOpen(true);
   };
 
-  const handleOpenSettingsWithTab = (tab: 'general' | 'members' = 'general') => {
+  const handleOpenSettingsWithTab = (tab: 'general' | 'members' | 'pwa' | 'cloudflare' = 'general') => {
     setSettingsTab(tab);
     setIsSettingsOpen(true);
   };
@@ -117,9 +116,6 @@ const MainAppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-800">
       <ToastContainer />
-
-      {/* PWA Mobile Install Banner */}
-      <PWAInstallPrompt />
 
       {/* Top Navbar with Home Button on the top left */}
       <Navbar

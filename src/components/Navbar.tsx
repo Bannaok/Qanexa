@@ -159,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       src={
                         currentUser.avatarUrl ||
                         `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
-                          currentUser.displayName || currentUser.email
+                          currentUser.displayName || currentUser.username || currentUser.id || 'User'
                         )}`
                       }
                       alt={currentUser.displayName}
@@ -182,8 +182,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <div className="font-semibold text-xs text-slate-800 truncate">
                           {currentUser.displayName}
                         </div>
-                        <div className="text-[11px] text-slate-400 truncate">
-                          {currentUser.email}
+                        <div className="text-[11px] font-mono text-slate-500 truncate">
+                          ID: {currentUser.username || currentUser.id}
                         </div>
                         <div className="mt-1.5">
                           {isAdmin ? (

@@ -83,6 +83,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
   const startCamera = async () => {
     setCameraError(null);
+
+    // Check if mediaDevices API is available
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError('เบราว์เซอร์หรืออุปกรณ์นี้ไม่อนุญาตให้เปิดกล้องโดยตรง กรุณาเลือกอัปโหลดรูปภาพกระดาษคำตอบจากเครื่องแทน');
+      setCameraActive(false);
+      return;
+    }
+
     try {
       const constraints: MediaStreamConstraints = {
         video: {
@@ -96,11 +104,12 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch(() => {});
       }
       setCameraActive(true);
-    } catch (err) {
-      console.warn('High res camera failed, falling back to basic camera', err);
+      setCameraError(null);
+    } catch (err: any) {
+      // Fallback to basic camera resolution
       try {
         const fallbackStream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -108,12 +117,22 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         streamRef.current = fallbackStream;
         if (videoRef.current) {
           videoRef.current.srcObject = fallbackStream;
-          videoRef.current.play();
+          videoRef.current.play().catch(() => {});
         }
         setCameraActive(true);
-      } catch (e) {
-        console.error('Camera access completely denied', e);
-        setCameraError('ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการเข้าถึงกล้องบนเบราว์เซอร์ หรือเลือกภาพจากเครื่องแทน');
+        setCameraError(null);
+      } catch (e: any) {
+        // Graceful permission denied handler without throwing to console.error
+        const isPermissionDenied =
+          e?.name === 'NotAllowedError' ||
+          e?.name === 'PermissionDeniedError' ||
+          (e?.message && e.message.toLowerCase().includes('denied'));
+
+        setCameraError(
+          isPermissionDenied
+            ? 'ไม่อนุญาตให้เข้าถึงกล้อง (Permission Denied) กรุณาอนุญาตสิทธิ์กล้องในเบราว์เซอร์ หรือกดเลือกภาพจากเครื่องแทน'
+            : 'ไม่สามารถเปิดกล้องได้ กรุณาเลือกรูปภาพจากเครื่องแทน'
+        );
         setCameraActive(false);
       }
     }
@@ -554,23 +573,37 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                     </div>
 
                     {cameraError && (
-                      <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center p-6 text-center text-rose-300 space-y-3">
-                        <AlertCircle className="w-10 h-10 text-rose-400" />
-                        <div>
+                      <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center p-6 text-center space-y-3 z-20 animate-fadeIn">
+                        <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
+                          <AlertCircle className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
                           <p className="text-sm font-semibold text-white">ไม่สามารถเปิดกล้องได้ (Camera Permission Denied)</p>
-                          <p className="text-xs text-slate-300 mt-1 max-w-md">
-                            เบราว์เซอร์หรืออุปกรณ์ไม่อนุญาตให้เข้าถึงกล้องในสภาพแวดล้อมนี้ คุณสามารถเลือกอัปโหลดรูปภาพกระดาษคำตอบจากเครื่องแทนได้ทันที
+                          <p className="text-xs text-slate-300 max-w-md leading-relaxed">
+                            {cameraError}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
                           <button
+                            type="button"
                             onClick={() => {
                               stopCamera();
                               setMode('upload');
+                              setTimeout(() => fileInputRef.current?.click(), 100);
                             }}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-md transition-colors"
+                            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-md transition-colors"
                           >
-                            📁 เลือกอัปโหลดรูปภาพจากเครื่อง
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>เลือกรูปภาพจากเครื่องตรวจแทน</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => startCamera()}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-medium cursor-pointer transition-colors"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>ลองเปิดกล้องใหม่อีกครั้ง</span>
                           </button>
                         </div>
                       </div>

@@ -3,7 +3,9 @@ export type UserStatus = 'pending' | 'approved' | 'rejected';
 
 export interface UserProfile {
   id: string;
-  email: string;
+  username: string; // Login ID (e.g. 'admin', 'teacher01')
+  password?: string; // Login Password
+  email?: string; // Legacy/optional reference
   displayName: string;
   role: UserRole;
   status: UserStatus;
