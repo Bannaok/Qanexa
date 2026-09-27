@@ -407,15 +407,16 @@ export const omrScannerEngine = {
       }
 
       const totalQ = exam.questionCount;
-      const choiceCount = exam.choiceCount;
+      // Strictly 4 choices (ก, ข, ค, ง)
+      const choiceCount = 4;
 
       // 3-Table Layout coordinates matching AnswerSheetView:
       // Table 0 (Left): Questions 1 - 15
       // Table 1 (Center): Questions 16 - 30
       // Table 2 (Right): Questions 31 - 45
-      // Rows stretch to bottom margin (row 15 touches the bottom)
-      const vRowsStart = 0.31;
-      const vRowsEnd = 0.98;
+      // Rows start below student info header and end leaving bottom breathing space
+      const vRowsStart = 0.32;
+      const vRowsEnd = 0.93;
       const vRowHeight = (vRowsEnd - vRowsStart) / 15;
 
       const answers: QuestionAnswer[] = [];
@@ -425,18 +426,20 @@ export const omrScannerEngine = {
         const tableIdx = Math.min(2, Math.floor((q - 1) / 15));
         const rowIndex = (q - 1) % 15;
 
-        const uTableStart = 0.02 + tableIdx * 0.33;
-        const tableWidth = 0.30;
-        const uChoiceAreaStart = uTableStart + tableWidth * 0.24;
-        const uChoiceStep = (tableWidth * 0.76) / choiceCount;
+        // Table horizontal coordinates: 3 tables evenly spaced
+        const uTableStart = 0.035 + tableIdx * 0.32;
+        const tableWidth = 0.29;
+        // Inside table: Number column is 22%, 4 Choice columns take 78%
+        const uChoiceAreaStart = uTableStart + tableWidth * 0.22;
+        const uChoiceStep = (tableWidth * 0.78) / choiceCount;
 
         const vCenter = vRowsStart + (rowIndex + 0.5) * vRowHeight;
 
-        // Box size in pixels
+        // Box size in pixels (virtually 1:1 square)
         const mappedP1 = mapUV(uChoiceAreaStart, vCenter);
         const mappedP2 = mapUV(uChoiceAreaStart + uChoiceStep, vCenter);
         const stepPx = Math.hypot(mappedP2.x - mappedP1.x, mappedP2.y - mappedP1.y);
-        const boxRadius = Math.max(7, Math.min(20, stepPx * 0.42));
+        const boxRadius = Math.max(7, Math.min(20, stepPx * 0.44));
 
         // Sample each square choice box
         const choiceScores: {

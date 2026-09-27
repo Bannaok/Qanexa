@@ -21,13 +21,16 @@ interface AnswerSheetViewProps {
 
 /**
  * Single Answer Sheet Half (A5 size in A4 Landscape: 148.5mm x 210mm)
- * - 3 Separate Tables / Frames with clear distinct borders:
+ * - 3 Distinct Tables:
  *     Table 1 (Left): ข้อ 1 - 15
  *     Table 2 (Center): ข้อ 16 - 30
  *     Table 3 (Right): ข้อ 31 - 45
- * - Table format: cells share borders (border-collapse: collapse), numbers adjacent to choices
- * - Row 15 touches the bottom margin to maximize cell height & number font size!
- * - Clean student info header and instruction pill matching the standard design
+ * - Strictly 4 Choices: ก, ข, ค, ง / A, B, C, D (No 'จ' or 'E' to maximize square space)
+ * - Choice cells are perfect squares (สี่เหลี่ยมจัตุรัส ~8.6mm x ~8.6mm)
+ * - Row 15 does not touch the bottom margin so tightly, leaving comfortable breathing room
+ * - Student info box:
+ *     Row 1: ชื่อ - สกุล (ยาวเต็มบรรทัดเดี่ยวๆ)
+ *     Row 2: ชั้น, เลขที่, วันที่ (อยู่ร่วมกันในบรรทัดที่ 2)
  */
 const SingleAnswerSheetHalf: React.FC<{
   exam: Exam;
@@ -35,10 +38,10 @@ const SingleAnswerSheetHalf: React.FC<{
   copyIndex: number;
 }> = ({ exam, qrCodeUrl, copyIndex }) => {
   const totalQ = exam.questionCount;
-  const choiceCount = exam.choiceCount || 4;
-
-  const thaiLabels = ['ก', 'ข', 'ค', 'ง', 'จ'].slice(0, choiceCount);
-  const latinLabels = ['A', 'B', 'C', 'D', 'E'].slice(0, choiceCount);
+  // Strictly 4 choices (ก, ข, ค, ง and A, B, C, D) to give maximum square space
+  const choiceCount = 4;
+  const thaiLabels = ['ก', 'ข', 'ค', 'ง'];
+  const latinLabels = ['A', 'B', 'C', 'D'];
 
   // 3 Fixed Tables of 15 rows each
   const tablesConfig = [
@@ -55,13 +58,13 @@ const SingleAnswerSheetHalf: React.FC<{
         key={tableIdx}
         className="flex-1 flex flex-col border-2 border-slate-950 bg-white rounded-xs overflow-hidden shadow-2xs"
       >
-        <table className="w-full h-full border-collapse border-slate-950 text-center select-none table-fixed">
+        <table className="w-full border-collapse border-slate-950 text-center select-none table-fixed">
           <thead>
             {/* Header Row 1: ก ข ค ง */}
             <tr className="bg-rose-100/90 text-slate-950 font-black text-xs border-b border-slate-900">
               <th
                 rowSpan={2}
-                className="border-r border-slate-900 w-[24%] py-0.5 text-center font-black text-xs font-mono"
+                className="border-r border-slate-900 w-[22%] py-0.5 text-center font-black text-xs font-mono"
               >
                 ข้อ
               </th>
@@ -93,14 +96,14 @@ const SingleAnswerSheetHalf: React.FC<{
               return (
                 <tr
                   key={qNum}
-                  className="border-b border-slate-900 last:border-b-0 h-[8.6mm]"
+                  className="border-b border-slate-900 last:border-b-0 h-[8.5mm]"
                 >
-                  {/* Question Number Cell: snug against left border, shaded background */}
+                  {/* Question Number Cell: shaded, snug against left border */}
                   <td className="border-r border-slate-900 bg-rose-50/80 font-mono font-black text-slate-950 text-xs sm:text-sm text-center p-0">
                     {isActive ? qNum : ''}
                   </td>
 
-                  {/* Choice square cells: empty, adjacent, sharing table borders */}
+                  {/* 4 Square Choice Cells (~8.6mm x 8.5mm square boxes) */}
                   {Array.from({ length: choiceCount }, (_, cIdx) => (
                     <td
                       key={cIdx}
@@ -108,7 +111,7 @@ const SingleAnswerSheetHalf: React.FC<{
                         isActive ? 'bg-white' : 'bg-slate-50/40'
                       }`}
                     >
-                      {/* Clean empty box for student to draw X mark */}
+                      {/* Empty square cell for student to mark X */}
                     </td>
                   ))}
                 </tr>
@@ -121,21 +124,26 @@ const SingleAnswerSheetHalf: React.FC<{
   };
 
   return (
-    <div className="w-[148.5mm] h-[210mm] max-h-[210mm] p-[3mm_4mm] relative flex flex-col justify-between box-border overflow-hidden bg-white text-slate-900 border border-slate-300">
+    <div className="w-[148.5mm] h-[210mm] max-h-[210mm] p-[3.5mm_5mm] relative flex flex-col justify-between box-border overflow-hidden bg-white text-slate-900 border border-slate-300">
       {/* 4 Corner Alignment Registration Marks (OMR fiducials for skew correction) */}
       <div className="absolute top-[3.5mm] left-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
       <div className="absolute top-[3.5mm] right-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
       <div className="absolute bottom-[3.5mm] left-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
       <div className="absolute bottom-[3.5mm] right-[3.5mm] w-[5mm] h-[5mm] bg-black pointer-events-none" />
 
-      {/* Sheet Content: Stretches fully from top to bottom */}
-      <div className="flex-1 flex flex-col justify-between h-full pt-1 px-1 pb-0.5">
-        {/* Top Header: Title & QR Code */}
+      {/* Sheet Content: neatly structured with breathing room at bottom */}
+      <div className="flex-1 flex flex-col justify-between h-full pt-1 px-0.5 pb-2">
+        {/* Top Header: Title, Subject & QR Code */}
         <div className="flex items-center justify-between gap-2 px-1 pb-1">
-          <div className="flex-1 text-center pl-10">
+          <div className="flex-1 text-center pl-8">
             <h1 className="font-heading font-black text-base text-slate-950 tracking-wider">
               กระดาษคำตอบ
             </h1>
+            <div className="text-[11px] text-slate-700 font-semibold truncate">
+              วิชา: <strong className="text-slate-950 font-bold">{exam.title}</strong>
+              {exam.gradeLevel ? ` (${exam.gradeLevel})` : ''}
+              {' '}<span className="text-slate-500 font-normal">| แผ่นที่ {copyIndex}</span>
+            </div>
           </div>
 
           {/* Top Right: QR Code Box */}
@@ -153,65 +161,56 @@ const SingleAnswerSheetHalf: React.FC<{
           )}
         </div>
 
-        {/* Student Info Box (Rounded border container matching images.png) */}
-        <div className="border border-slate-900 rounded-xl p-1.5 px-2.5 bg-white text-[10.5px] leading-snug space-y-1 shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center flex-1 min-w-0">
-              <span className="font-bold text-slate-950 shrink-0">วิชา:</span>
-              <span className="font-bold text-slate-950 ml-1.5 truncate max-w-[200px]">
-                {exam.title}
+        {/* Student Info Box:
+            Row 1: ชื่อ - สกุล (ยาวเต็มบรรทัดเดี่ยวๆ สำหรับชื่อยาว)
+            Row 2: ชั้น, เลขที่, วันที่ (อยู่ร่วมกันในบรรทัดที่ 2)
+        */}
+        <div className="border border-slate-900 rounded-xl p-2 px-3 bg-white text-[11px] leading-snug space-y-1.5 shrink-0">
+          {/* Row 1: ชื่อ - สกุล ยาวเต็มบรรทัด */}
+          <div className="flex items-center min-w-0">
+            <span className="font-bold text-slate-950 shrink-0 text-xs">ชื่อ - สกุล:</span>
+            <div className="ml-2 flex-1 border-b border-dotted border-slate-700 h-[14px] relative overflow-hidden">
+              <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[10px] pointer-events-none select-none">
+                ....................................................................................................................................
               </span>
-              {exam.gradeLevel ? (
-                <span className="ml-1 text-slate-700">({exam.gradeLevel})</span>
-              ) : null}
             </div>
-            <span className="text-[9px] font-mono text-slate-500 font-bold shrink-0">
-              [แผ่นที่ {copyIndex}]
-            </span>
           </div>
 
-          {/* Student Fields: ชื่อ, ชั้น, เลขที่ */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center flex-1 min-w-0">
-              <span className="font-bold text-slate-950 shrink-0">ชื่อ:</span>
-              <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
-                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
-                  ...........................................................................
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center w-20 shrink-0">
+          {/* Row 2: ชั้น + เลขที่ + วันที่ อยู่ร่วมกัน */}
+          <div className="flex items-center gap-3">
+            {/* ชั้น */}
+            <div className="flex items-center w-28 shrink-0">
               <span className="font-bold text-slate-950 shrink-0">ชั้น:</span>
-              <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
-                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
+              <div className="ml-1.5 flex-1 border-b border-dotted border-slate-700 h-[14px] relative overflow-hidden">
+                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[10px] pointer-events-none select-none">
                   ................
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center w-20 shrink-0">
+            {/* เลขที่ */}
+            <div className="flex items-center w-24 shrink-0">
               <span className="font-bold text-slate-950 shrink-0">เลขที่:</span>
-              <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
-                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
-                  ................
+              <div className="ml-1.5 flex-1 border-b border-dotted border-slate-700 h-[14px] relative overflow-hidden">
+                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[10px] pointer-events-none select-none">
+                  ............
                 </span>
               </div>
             </div>
-          </div>
 
-          {/* Date Field */}
-          <div className="flex items-center">
-            <span className="font-bold text-slate-950 shrink-0">วันที่:</span>
-            <div className="ml-1 flex-1 border-b border-dotted border-slate-700 h-[12px] relative overflow-hidden">
-              <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[9px] pointer-events-none select-none">
-                ........................................................................................................................
-              </span>
+            {/* วันที่ */}
+            <div className="flex items-center flex-1 min-w-0">
+              <span className="font-bold text-slate-950 shrink-0">วันที่:</span>
+              <div className="ml-1.5 flex-1 border-b border-dotted border-slate-700 h-[14px] relative overflow-hidden">
+                <span className="absolute inset-x-0 bottom-0 text-slate-500 tracking-[0.2em] whitespace-nowrap text-[10px] pointer-events-none select-none">
+                  ............................................................
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Centered Instruction Pill Badge (matching images.png) */}
+        {/* Centered Instruction Pill Badge */}
         <div className="flex justify-center my-1 shrink-0">
           <div className="bg-slate-600 text-white text-[9px] font-bold px-3 py-0.5 rounded-xs tracking-wide shadow-2xs">
             ให้นักเรียนทำเครื่องหมาย X ลงบนช่องที่เลือกคำตอบ
@@ -219,8 +218,8 @@ const SingleAnswerSheetHalf: React.FC<{
         </div>
 
         {/* 3 Main Tables (3 กรอบชัดเจน): ตารางซ้าย 1-15, ตารางกลาง 16-30, ตารางขวา 31-45 */}
-        {/* Row 15 touches the bottom margin to maximize cell height & number font size! */}
-        <div className="flex-1 flex gap-2 w-full items-stretch min-h-0 mb-1">
+        {/* Cells are square (~8.6mm x 8.5mm), with nice breathing margin at the bottom */}
+        <div className="flex gap-2 w-full items-start shrink-0 mb-1">
           {tablesConfig.map((cfg, idx) => renderTable(cfg.start, cfg.end, idx))}
         </div>
       </div>
@@ -409,7 +408,7 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
             </div>
             <p className="text-[11px] text-slate-400 truncate">
               {exam.gradeLevel ? `${exam.gradeLevel} • ` : ''}
-              {exam.questionCount} ข้อ ({exam.choiceCount} ตัวเลือก) • ตาราง 3 กรอบชัดเจน ช่องใหญ่เต็มกระดาษ
+              {exam.questionCount} ข้อ (4 ตัวเลือก ก,ข,ค,ง) • ช่องสี่เหลี่ยมจัตุรัสสวยงาม ชัดเจน
             </p>
           </div>
         </div>

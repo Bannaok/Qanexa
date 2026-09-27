@@ -178,11 +178,11 @@ export const pdfGenerator = {
       const gradeStr = exam.gradeLevel ? ` | ชั้น: ${exam.gradeLevel}` : '';
       ctx.fillText(`วิชา: ${exam.title}${gradeStr} | ${exam.questionCount} ข้อ (${exam.choiceCount} ตัวเลือก)`, offsetX + padX + 70, padY + 80);
 
-      // Student fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ (Full width, wide lines)
+      // Student fields: Row 1 ชื่อ-สกุล (ยาวเต็มบรรทัดเดี่ยวๆ), Row 2 ชั้น + เลขที่ + วันที่
       ctx.font = '19px "Sarabun", sans-serif';
       ctx.fillStyle = '#0f172a';
-      ctx.fillText('ชื่อ - สกุล: ............................................................................................    เลขที่: .....................', offsetX + padX + 70, padY + 130);
-      ctx.fillText('วันที่สอบ: ............................................................................................', offsetX + padX + 70, padY + 175);
+      ctx.fillText('ชื่อ - สกุล: ....................................................................................................................', offsetX + padX + 70, padY + 130);
+      ctx.fillText('ชั้น: ....................    เลขที่: ....................    วันที่: ................................................................', offsetX + padX + 70, padY + 175);
 
       // QR Code
       if (qrImg) {
@@ -201,8 +201,12 @@ export const pdfGenerator = {
       ctx.fillText('ให้นักเรียนทำเครื่องหมาย X ลงบนช่องที่เลือกคำตอบ', offsetX + padX + 50 + headerBoxW / 2, padY + 263);
       ctx.textAlign = 'left';
 
+      // Strictly 4 choices (ก, ข, ค, ง and A, B, C, D)
+      const choiceLabels = ['ก', 'ข', 'ค', 'ง'];
+      const latinLabels = ['A', 'B', 'C', 'D'];
+
       // 3 Tables / Frames (Table 1: 1-15, Table 2: 16-30, Table 3: 31-45)
-      // Row 15 touches the bottom margin to maximize cell height & number font size!
+      // Cells are squares with comfortable breathing space at bottom
       const tablesConfig = [
         { start: 1, end: 15 },
         { start: 16, end: 30 },
@@ -213,7 +217,8 @@ export const pdfGenerator = {
       const totalGridW = headerBoxW;
       const tableGap = 16;
       const tableW = (totalGridW - tableGap * 2) / 3;
-      const gridEndY = height - padY - 20; // Extends right to bottom margin!
+      // Leave comfortable breathing space at bottom
+      const gridEndY = height - padY - 75;
       const availableGridH = gridEndY - gridStartY;
       const headerH1 = 28;
       const headerH2 = 22;
@@ -236,7 +241,7 @@ export const pdfGenerator = {
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 1.5;
 
-        const numColW = tableW * 0.24;
+        const numColW = tableW * 0.22;
         const choiceColW = (tableW - numColW) / choiceLabels.length;
 
         // "ข้อ" cell (spans both header rows)
@@ -247,7 +252,6 @@ export const pdfGenerator = {
         ctx.fillText('ข้อ', colX + numColW / 2, gridStartY + totalHeaderH / 2 + 6);
 
         // Header rows: Row 1 (ก ข ค ง), Row 2 (A B C D)
-        const latinLabels = ['A', 'B', 'C', 'D', 'E'].slice(0, choiceLabels.length);
         choiceLabels.forEach((lbl, cIdx) => {
           const cx = colX + numColW + cIdx * choiceColW;
           ctx.strokeRect(cx, gridStartY, choiceColW, headerH1);
