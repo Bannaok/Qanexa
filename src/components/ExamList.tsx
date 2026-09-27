@@ -13,7 +13,6 @@ import {
   Calendar,
   GraduationCap,
   ArrowLeft,
-  Eye,
 } from 'lucide-react';
 
 interface ExamListProps {
@@ -236,15 +235,6 @@ export const ExamList: React.FC<ExamListProps> = ({
                 >
                   <Camera className="w-3.5 h-3.5" />
                   <span>สแกน</span>
-                </button>
-
-                {/* View / inspect exam details & answer key */}
-                <button
-                  onClick={() => onEditExam(exam)}
-                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                  title="ดูเฉลย / รายละเอียดชุดข้อสอบ (ไอคอนตา)"
-                >
-                  <Eye className="w-3.5 h-3.5" />
                 </button>
 
                 {/* Edit & Delete in minimal icon buttons */}

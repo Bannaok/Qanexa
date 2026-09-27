@@ -22,7 +22,10 @@ interface AnswerSheetViewProps {
 
 /**
  * Single Answer Sheet Half (A5 size in A4 Landscape: 148.5mm x 210mm)
- * Each half has its own 4 corner fiducial marks, QR code, header, student fields, and bubble grid.
+ * - 2 Main frames/tables: Left frame (ข้อ 1-20), Right frame (ข้อ 21-40)
+ * - If total <= 20 questions, ONLY the left frame is shown!
+ * - Large question numbers, closely aligned next to ก, ข, ค, ง
+ * - Full-width wide dotted lines for ชื่อ-สกุล, เลขที่, วันที่สอบ (100% identical on screen, print, and PDF)
  */
 const SingleAnswerSheetHalf: React.FC<{
   exam: Exam;
@@ -30,14 +33,74 @@ const SingleAnswerSheetHalf: React.FC<{
   copyIndex: number;
 }> = ({ exam, qrCodeUrl, copyIndex }) => {
   const totalQ = exam.questionCount;
-  // Columns per half: 1 column for <= 10, 2 columns for <= 20, 3 columns for <= 40, 4 columns for > 40
-  const numCols = totalQ <= 10 ? 1 : totalQ <= 20 ? 2 : totalQ <= 40 ? 3 : 4;
-  const qPerCol = Math.ceil(totalQ / numCols);
+
+  // Divided into 2 main tables:
+  // Left table: ข้อ 1 - 20 (or up to 20)
+  // Right table: ข้อ 21 - 40 (only if totalQ > 20)
+  let leftQuestions: number[] = [];
+  let rightQuestions: number[] = [];
+
+  if (totalQ <= 20) {
+    // If <= 20 questions: ONLY show left frame!
+    leftQuestions = Array.from({ length: totalQ }, (_, i) => i + 1);
+    rightQuestions = [];
+  } else if (totalQ <= 40) {
+    // 1-20 on left, 21-totalQ on right
+    leftQuestions = Array.from({ length: 20 }, (_, i) => i + 1);
+    rightQuestions = Array.from({ length: totalQ - 20 }, (_, i) => i + 21);
+  } else {
+    // If > 40 questions (e.g. 50 or 60), cleanly divide in two halves
+    const half = Math.ceil(totalQ / 2);
+    leftQuestions = Array.from({ length: half }, (_, i) => i + 1);
+    rightQuestions = Array.from({ length: totalQ - half }, (_, i) => i + half + 1);
+  }
 
   const choiceLabels =
     exam.choiceLabelType === 'latin'
       ? ['A', 'B', 'C', 'D', 'E'].slice(0, exam.choiceCount)
       : ['ก', 'ข', 'ค', 'ง', 'จ'].slice(0, exam.choiceCount);
+
+  const renderQuestionTable = (questions: number[]) => (
+    <div className="border-2 border-slate-900 rounded-lg overflow-hidden bg-white shadow-2xs flex-1">
+      {/* Table Header: ข้อ ชิดกับ ก ข ค ง */}
+      <div className="bg-slate-200 border-b-2 border-slate-900 py-1 px-2 flex items-center justify-center gap-2.5 text-xs font-black text-slate-950">
+        <span className="w-9 text-right font-black text-xs font-mono">ข้อ</span>
+        <div className="flex items-center gap-2">
+          {choiceLabels.map((lbl) => (
+            <span key={lbl} className="w-[23px] text-center font-black text-xs">
+              {lbl}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Question Rows: ตัวเลขข้อใหญ่มาก เห็นชัดเจน และชิดกับ ก,ข,ค,ง */}
+      <div className="divide-y divide-slate-200">
+        {questions.map((qNum) => (
+          <div
+            key={qNum}
+            className="py-[2.5px] px-2 flex items-center justify-center gap-2.5 hover:bg-slate-50"
+          >
+            {/* Question Number: ใหญ่ ชัดเจนมาก */}
+            <span className="w-9 font-mono font-black text-slate-950 text-sm sm:text-base text-right pr-0.5">
+              {qNum}.
+            </span>
+            {/* Choice Bubbles: ชิดติดกับตัวเลขข้อ */}
+            <div className="flex items-center gap-2">
+              {choiceLabels.map((lbl) => (
+                <div
+                  key={lbl}
+                  className="w-[23px] h-[23px] rounded-xs border-2 border-slate-900 flex items-center justify-center text-xs font-mono font-black text-slate-950 bg-white shadow-2xs"
+                >
+                  {lbl}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="w-[148.5mm] h-[210mm] max-h-[210mm] p-[5mm_6mm] relative flex flex-col justify-between box-border overflow-hidden bg-white text-slate-900">
@@ -53,9 +116,9 @@ const SingleAnswerSheetHalf: React.FC<{
         <div className="border-2 border-slate-900 rounded-lg p-2.5 bg-white shrink-0">
           <div className="flex items-start justify-between gap-2 pb-1.5 border-b border-slate-800">
             <div className="flex-1 min-w-0">
-              {/* Title: Only 'กระดาษคำตอบ' - No (OMR ANSWER SHEET), No 'ศูนย์ทดสอบ...' */}
+              {/* Title: Only 'กระดาษคำตอบ' */}
               <div className="flex items-center gap-1.5">
-                <h1 className="font-heading font-black text-base text-slate-900 leading-tight">
+                <h1 className="font-heading font-black text-base text-slate-950 leading-tight">
                   กระดาษคำตอบ
                 </h1>
                 <span className="text-[10px] text-slate-500 font-mono">
@@ -63,7 +126,7 @@ const SingleAnswerSheetHalf: React.FC<{
                 </span>
               </div>
 
-              {/* Subject Info: No 'หน่วยการเรียนรู้ที่ ...' */}
+              {/* Subject Info */}
               <div className="text-[11px] text-slate-800 font-semibold pt-0.5 leading-tight truncate">
                 วิชา: <strong className="text-slate-950 font-bold">{exam.title}</strong>
                 {exam.gradeLevel ? (
@@ -91,22 +154,34 @@ const SingleAnswerSheetHalf: React.FC<{
             )}
           </div>
 
-          {/* Student Fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ (No รหัสนักศึกษา) */}
-          <div className="pt-2 text-xs text-slate-900 space-y-1.5">
-            <div className="flex items-baseline gap-2">
-              <div className="flex items-baseline flex-1 min-w-0">
-                <span className="font-bold text-slate-900 shrink-0 text-[11px]">ชื่อ - สกุล:</span>
-                <span className="ml-1.5 flex-1 border-b border-dotted border-slate-600 min-h-[14px]" />
+          {/* Student Fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ (กว้าง เต็มพื้นที่ แสดงผลเหมือนกันทั้งหน้าจอ พิมพ์ และดาวน์โหลด) */}
+          <div className="pt-2 text-xs text-slate-900 space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center flex-1 min-w-0">
+                <span className="font-bold text-slate-950 shrink-0 text-xs">ชื่อ - สกุล:</span>
+                <div className="ml-2 flex-1 border-b-2 border-dotted border-slate-700 h-[15px] relative overflow-hidden">
+                  <span className="absolute inset-x-0 bottom-0 text-slate-700 tracking-[0.25em] overflow-hidden whitespace-nowrap text-[11px] leading-none pointer-events-none select-none">
+                    ....................................................................................................
+                  </span>
+                </div>
               </div>
-              <div className="flex items-baseline w-28 shrink-0">
-                <span className="font-bold text-slate-900 shrink-0 text-[11px]">เลขที่:</span>
-                <span className="ml-1.5 flex-1 border-b border-dotted border-slate-600 min-h-[14px]" />
+              <div className="flex items-center w-32 shrink-0">
+                <span className="font-bold text-slate-950 shrink-0 text-xs">เลขที่:</span>
+                <div className="ml-2 flex-1 border-b-2 border-dotted border-slate-700 h-[15px] relative overflow-hidden">
+                  <span className="absolute inset-x-0 bottom-0 text-slate-700 tracking-[0.25em] overflow-hidden whitespace-nowrap text-[11px] leading-none pointer-events-none select-none">
+                    ..............................
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="flex items-baseline">
-              <span className="font-bold text-slate-900 shrink-0 text-[11px]">วันที่สอบ:</span>
-              <span className="ml-1.5 flex-1 border-b border-dotted border-slate-600 min-h-[14px]" />
+            <div className="flex items-center">
+              <span className="font-bold text-slate-950 shrink-0 text-xs">วันที่สอบ:</span>
+              <div className="ml-2 flex-1 border-b-2 border-dotted border-slate-700 h-[15px] relative overflow-hidden">
+                <span className="absolute inset-x-0 bottom-0 text-slate-700 tracking-[0.25em] overflow-hidden whitespace-nowrap text-[11px] leading-none pointer-events-none select-none">
+                  ....................................................................................................
+                </span>
+              </div>
             </div>
           </div>
 
@@ -116,70 +191,21 @@ const SingleAnswerSheetHalf: React.FC<{
           </div>
         </div>
 
-        {/* Questions Grid Columns */}
-        <div
-          className={`grid gap-1.5 my-1.5 flex-1 items-start ${
-            numCols === 1
-              ? 'grid-cols-1'
-              : numCols === 2
-              ? 'grid-cols-2'
-              : numCols === 3
-              ? 'grid-cols-3'
-              : 'grid-cols-4'
-          }`}
-        >
-          {Array.from({ length: numCols }, (_, colIdx) => {
-            const startQ = colIdx * qPerCol + 1;
-            const endQ = Math.min((colIdx + 1) * qPerCol, totalQ);
-            if (startQ > totalQ) return null;
-
-            return (
-              <div
-                key={colIdx}
-                className="border border-slate-900 rounded-md overflow-hidden bg-white shadow-2xs"
-              >
-                {/* Column Header */}
-                <div className="bg-slate-100 border-b border-slate-900 py-0.5 px-1.5 flex items-center justify-between text-[11px] font-black text-slate-900">
-                  <span className="w-6 text-center font-bold text-[10px]">ข้อ</span>
-                  <div className="flex-1 flex justify-center items-center gap-1.5 px-0.5 font-bold">
-                    {choiceLabels.map((lbl) => (
-                      <span key={lbl} className="w-[18px] text-center font-bold text-[10px]">
-                        {lbl}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Question Rows */}
-                <div className="divide-y divide-slate-200">
-                  {Array.from({ length: endQ - startQ + 1 }, (_, rowIdx) => {
-                    const qNum = startQ + rowIdx;
-                    return (
-                      <div
-                        key={qNum}
-                        className="py-0.5 px-1 flex items-center justify-between text-[11px]"
-                      >
-                        <span className="w-6 font-mono font-bold text-slate-900 text-xs text-right pr-1">
-                          {qNum}.
-                        </span>
-                        <div className="flex-1 flex justify-center items-center gap-1.5 px-0.5">
-                          {choiceLabels.map((lbl) => (
-                            <div
-                              key={lbl}
-                              className="w-[18px] h-[18px] rounded-xs border border-slate-900 flex items-center justify-center text-[10px] font-mono font-bold text-slate-900 bg-white"
-                            >
-                              {lbl}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {/* 2 Main Question Tables / Frames (กรอบซ้าย: ข้อ 1-20, กรอบขวา: ข้อ 21-40) */}
+        {rightQuestions.length === 0 ? (
+          /* หากมี 20 ข้อ จะแสดงเฉพาะกรอบด้านซ้ายเท่านั้น */
+          <div className="my-1.5 flex-1 flex justify-center items-start w-full">
+            <div className="w-full max-w-[260px]">
+              {renderQuestionTable(leftQuestions)}
+            </div>
+          </div>
+        ) : (
+          /* หากมีมากกว่า 20 ข้อ แบ่ง 2 กรอบหลัก: ข้อ 1-20 ซ้าย, ข้อ 21-40 ขวา */
+          <div className="grid grid-cols-2 gap-2 my-1.5 flex-1 items-start w-full">
+            {renderQuestionTable(leftQuestions)}
+            {renderQuestionTable(rightQuestions)}
+          </div>
+        )}
 
         {/* Half Footer */}
         <div className="flex items-center justify-between text-[9px] text-slate-500 border-t border-slate-300 pt-1">

@@ -11,7 +11,7 @@ import {
   Upload,
   AlertCircle,
   Save,
-  Eye,
+  FileCheck,
   Sliders,
   User,
   RefreshCw,
@@ -370,7 +370,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                     <span className="flex items-center gap-1">
-                      <Eye className="w-3.5 h-3.5 text-indigo-600" />
+                      <FileCheck className="w-3.5 h-3.5 text-indigo-600" />
                       ภาพผลตรวจกระดาษคำตอบ (OMR Result)
                     </span>
                     <span className="text-[11px] text-slate-400">

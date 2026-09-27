@@ -8,8 +8,6 @@ import {
   FileCheck,
   Check,
   CheckCircle2,
-  Eye,
-  EyeOff,
 } from 'lucide-react';
 
 interface CreateExamModalProps {
@@ -55,10 +53,6 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
   // Answer Key: questionNumber (1-based) -> choiceIndex (0-based)
   const [answerKey, setAnswerKey] = useState<Record<number, number>>({});
 
-  // Lock answer key when viewing/editing existing exam to prevent accidental changes
-  // User must click Eye icon (ไอคอนตา) to unlock and edit answers!
-  const [isAnswerKeyLocked, setIsAnswerKeyLocked] = useState<boolean>(true);
-
   // Synchronize state when modal opens or activeExam changes
   useEffect(() => {
     if (!isOpen) return;
@@ -83,8 +77,6 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
         }
         setAnswerKey(defaultKeys);
       }
-      // Lock answer key by default so user doesn't accidentally change answers
-      setIsAnswerKeyLocked(true);
     } else {
       // Creating a new exam from scratch
       setTitle('');
@@ -99,7 +91,6 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
         defaultKeys[i] = 0;
       }
       setAnswerKey(defaultKeys);
-      setIsAnswerKeyLocked(false);
     }
   }, [isOpen, activeExam]);
 
@@ -143,14 +134,6 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
   };
 
   const handleSelectChoice = (questionNum: number, choiceIndex: number) => {
-    if (activeExam && isAnswerKeyLocked) {
-      info(
-        'โหมดดูเฉลย (ป้องกันการเปลี่ยนโดยไม่ตั้งใจ)',
-        'คลิกที่ปุ่มไอคอนรูปตา (👁️) ทางด้านขวาบน เพื่อปลดล็อคและแก้ไขเฉลยข้อสอบ'
-      );
-      return;
-    }
-
     setAnswerKey((prev) => ({
       ...prev,
       [questionNum]: choiceIndex,
@@ -378,7 +361,7 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
             </div>
           </div>
 
-          {/* Section 3: เฉลยข้อสอบ พร้อมปุ่มไอคอนตา ปลดล็อค/ดูเฉลย */}
+          {/* Section 3: กำหนดเฉลยข้อสอบ */}
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
               <div>
@@ -387,44 +370,9 @@ export const CreateExamModal: React.FC<CreateExamModalProps> = ({
                   <span>กำหนดเฉลยข้อสอบ (Answer Key Matrix)</span>
                 </h4>
                 <p className="text-xs text-slate-500">
-                  {activeExam && isAnswerKeyLocked
-                    ? '🔒 โหมดดูเฉลย (ป้องกันการเปลี่ยนโดยไม่ตั้งใจ) • กดที่ไอคอนตาเพื่อปลดล็อคแก้ไข'
-                    : '🔓 โหมดแก้ไขเฉลย • คลิกเลือกตัวเลือกที่ถูกต้องของแต่ละข้อได้ทันที'}
+                  คลิกเลือกตัวเลือกที่ถูกต้องของแต่ละข้อได้ทันที
                 </p>
               </div>
-
-              {/* Eye Icon Toggle Button */}
-              {activeExam && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAnswerKeyLocked(!isAnswerKeyLocked);
-                    if (isAnswerKeyLocked) {
-                      success('ปลดล็อคเฉลยเรียบร้อย', 'คุณสามารถคลิกเปลี่ยนตัวเลือกข้อสอบได้แล้ว');
-                    } else {
-                      info('ล็อคเฉลยเรียบร้อย', 'บันทึกสถานะล็อคเพื่อป้องกันการกดเปลี่ยนเฉลยโดยไม่ได้ตั้งใจ');
-                    }
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-2xs shrink-0 ${
-                    isAnswerKeyLocked
-                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
-                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                  }`}
-                  title={isAnswerKeyLocked ? 'กดไอคอนตาเพื่อปลดล็อคและเปลี่ยนเฉลย' : 'กดเพื่อล็อคเฉลย'}
-                >
-                  {isAnswerKeyLocked ? (
-                    <>
-                      <Eye className="w-4 h-4 text-amber-700" />
-                      <span>ดูเฉลยอยู่ (กดไอคอนตาเพื่อเปลี่ยน)</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-4 h-4 text-emerald-700" />
-                      <span>กำลังแก้ไข (กดเพื่อล็อคเฉลย)</span>
-                    </>
-                  )}
-                </button>
-              )}
             </div>
 
             {/* 3 Columns Grid: ข้อเรียงลงมาตามแนวตั้ง */}

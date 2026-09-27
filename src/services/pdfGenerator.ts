@@ -55,7 +55,7 @@ export const pdfGenerator = {
       if (document.fonts) {
         await document.fonts.ready;
       }
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 200));
 
       // Capture at scale: 2 (crisp high-DPI quality)
       const canvas = await html2canvas(clone, {
@@ -69,7 +69,7 @@ export const pdfGenerator = {
         windowHeight: 794,
       });
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
 
       // Create PDF A4 Landscape: 297mm x 210mm
       const pdf = new jsPDF({
@@ -91,6 +91,7 @@ export const pdfGenerator = {
 
   /**
    * High-fidelity Canvas-rendered PDF fallback for A4 Landscape (2 answer sheets in 1 page).
+   * Matches the exact 2-table layout: Left frame (1-20), Right frame (21-40) and full-width dotted student fields.
    */
   async downloadPDF(exam: Exam, _orgName?: string, precomputedQR?: string): Promise<void> {
     const width = 2246; // 1123 * 2
@@ -128,6 +129,22 @@ export const pdfGenerator = {
         ? ['A', 'B', 'C', 'D', 'E'].slice(0, exam.choiceCount)
         : ['ก', 'ข', 'ค', 'ง', 'จ'].slice(0, exam.choiceCount);
 
+    const totalQ = exam.questionCount;
+    let leftQuestions: number[] = [];
+    let rightQuestions: number[] = [];
+
+    if (totalQ <= 20) {
+      leftQuestions = Array.from({ length: totalQ }, (_, i) => i + 1);
+      rightQuestions = [];
+    } else if (totalQ <= 40) {
+      leftQuestions = Array.from({ length: 20 }, (_, i) => i + 1);
+      rightQuestions = Array.from({ length: totalQ - 20 }, (_, i) => i + 21);
+    } else {
+      const half = Math.ceil(totalQ / 2);
+      leftQuestions = Array.from({ length: half }, (_, i) => i + 1);
+      rightQuestions = Array.from({ length: totalQ - half }, (_, i) => i + half + 1);
+    }
+
     // Draw both halves (Copy 1 on left, Copy 2 on right)
     for (let copy = 0; copy < 2; copy++) {
       const offsetX = copy * halfWidth;
@@ -146,9 +163,10 @@ export const pdfGenerator = {
       // Header box
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 3;
-      ctx.strokeRect(offsetX + padX + 50, padY, innerW - 100, 220);
+      const headerBoxW = innerW - 100;
+      ctx.strokeRect(offsetX + padX + 50, padY, headerBoxW, 225);
 
-      // Title (No "OMR ANSWER SHEET", No "ศูนย์ทดสอบ...")
+      // Title
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 32px "Kanit", "Sarabun", sans-serif';
       ctx.fillText('กระดาษคำตอบ', offsetX + padX + 70, padY + 45);
@@ -159,11 +177,11 @@ export const pdfGenerator = {
       const gradeStr = exam.gradeLevel ? ` | ชั้น: ${exam.gradeLevel}` : '';
       ctx.fillText(`วิชา: ${exam.title}${gradeStr} | ${exam.questionCount} ข้อ (${exam.choiceCount} ตัวเลือก)`, offsetX + padX + 70, padY + 80);
 
-      // Student fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ
+      // Student fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ (Full width, wide lines)
       ctx.font = '19px "Sarabun", sans-serif';
       ctx.fillStyle = '#0f172a';
-      ctx.fillText('ชื่อ - สกุล: ___________________________    เลขที่: ________', offsetX + padX + 70, padY + 130);
-      ctx.fillText('วันที่สอบ: ___________________________', offsetX + padX + 70, padY + 175);
+      ctx.fillText('ชื่อ - สกุล: ............................................................................................    เลขที่: .....................', offsetX + padX + 70, padY + 130);
+      ctx.fillText('วันที่สอบ: ............................................................................................', offsetX + padX + 70, padY + 175);
 
       // QR Code
       if (qrImg) {
@@ -178,74 +196,76 @@ export const pdfGenerator = {
       ctx.fillStyle = '#334155';
       ctx.fillText('📌 คำแนะนำ: กากบาท (X) หรือระบายในช่องสี่เหลี่ยม [ ] เพียงตัวเลือกเดียว', offsetX + padX + 50, padY + 255);
 
-      // Question Grid
-      const totalQ = exam.questionCount;
-      const numCols = totalQ <= 20 ? 2 : totalQ <= 40 ? 3 : 4;
-      const qPerCol = Math.ceil(totalQ / numCols);
-      const gridStartY = padY + 275;
-      const gridW = innerW - 100;
-      const colW = (gridW - (numCols - 1) * 16) / numCols;
+      // Draw question tables
+      const tablesToDraw = rightQuestions.length === 0 ? [leftQuestions] : [leftQuestions, rightQuestions];
+      const numTables = tablesToDraw.length;
+      const gridStartY = padY + 280;
+      const totalGridW = headerBoxW;
+      const tableW = numTables === 1 ? Math.min(520, totalGridW) : (totalGridW - 20) / 2;
+      const gridStartX = numTables === 1 ? offsetX + padX + 50 + (totalGridW - tableW) / 2 : offsetX + padX + 50;
 
-      for (let c = 0; c < numCols; c++) {
-        const colX = offsetX + padX + 50 + c * (colW + 16);
-        const startQ = c * qPerCol + 1;
-        const endQ = Math.min((c + 1) * qPerCol, totalQ);
-        if (startQ > totalQ) continue;
+      tablesToDraw.forEach((qList, tIdx) => {
+        const colX = gridStartX + tIdx * (tableW + 20);
 
         // Column header
         ctx.fillStyle = '#e2e8f0';
-        ctx.fillRect(colX, gridStartY, colW, 36);
+        ctx.fillRect(colX, gridStartY, tableW, 40);
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 2;
-        ctx.strokeRect(colX, gridStartY, colW, 36);
+        ctx.strokeRect(colX, gridStartY, tableW, 40);
+
+        const boxSize = 28;
+        const boxGap = 12;
+        const totalBoxW = choiceLabels.length * boxSize + (choiceLabels.length - 1) * boxGap;
+        const numberW = 50;
+        const totalRowW = numberW + 10 + totalBoxW;
+        const rowStartX = colX + (tableW - totalRowW) / 2;
 
         ctx.fillStyle = '#0f172a';
-        ctx.font = 'bold 18px "Sarabun", sans-serif';
-        ctx.fillText('ข้อ', colX + 10, gridStartY + 25);
-
-        const boxSize = 26;
-        const boxGap = 10;
-        const totalBoxW = choiceLabels.length * boxSize + (choiceLabels.length - 1) * boxGap;
-        const choiceStartX = colX + 50 + ((colW - 55) - totalBoxW) / 2;
+        ctx.font = 'bold 20px "Sarabun", sans-serif';
+        ctx.fillText('ข้อ', rowStartX + 10, gridStartY + 28);
 
         choiceLabels.forEach((lbl, idx) => {
-          const bx = choiceStartX + idx * (boxSize + boxGap);
-          ctx.fillText(lbl, bx + 7, gridStartY + 25);
+          const bx = rowStartX + numberW + 10 + idx * (boxSize + boxGap);
+          ctx.fillText(lbl, bx + 8, gridStartY + 28);
         });
 
-        // Question rows
-        let rowY = gridStartY + 36;
-        const availableHeight = height - padY - 80 - (gridStartY + 36);
-        const rowHeight = Math.min(38, Math.max(28, availableHeight / qPerCol));
+        // Question rows: Numbers LARGE and closely adjacent to choice boxes
+        let rowY = gridStartY + 40;
+        const maxRows = Math.max(leftQuestions.length, rightQuestions.length || 1);
+        const availableH = height - padY - 60 - rowY;
+        const rowH = Math.min(48, Math.max(34, availableH / maxRows));
 
-        for (let q = startQ; q <= endQ; q++) {
+        qList.forEach((qNum) => {
           ctx.strokeStyle = '#e2e8f0';
           ctx.lineWidth = 1;
-          ctx.strokeRect(colX, rowY, colW, rowHeight);
+          ctx.strokeRect(colX, rowY, tableW, rowH);
 
+          // Large question number
           ctx.fillStyle = '#0f172a';
-          ctx.font = 'bold 16px monospace';
-          ctx.fillText(`${q}.`, colX + 8, rowY + rowHeight / 2 + 5);
+          ctx.font = 'bold 20px monospace';
+          ctx.fillText(`${qNum}.`, rowStartX + 5, rowY + rowH / 2 + 7);
 
+          // Choices right next to number
           choiceLabels.forEach((lbl, idx) => {
-            const bx = choiceStartX + idx * (boxSize + boxGap);
-            const by = rowY + (rowHeight - boxSize) / 2;
+            const bx = rowStartX + numberW + 10 + idx * (boxSize + boxGap);
+            const by = rowY + (rowH - boxSize) / 2;
             ctx.strokeStyle = '#0f172a';
             ctx.lineWidth = 2;
             ctx.strokeRect(bx, by, boxSize, boxSize);
-            ctx.font = 'bold 15px "Sarabun", sans-serif';
+            ctx.font = 'bold 17px "Sarabun", sans-serif';
             ctx.fillStyle = '#0f172a';
-            ctx.fillText(lbl, bx + 7, by + 18);
+            ctx.fillText(lbl, bx + 8, by + 20);
           });
 
-          rowY += rowHeight;
-        }
-      }
+          rowY += rowH;
+        });
+      });
 
       // Footer
       ctx.font = '16px "Sarabun", sans-serif';
       ctx.fillStyle = '#64748b';
-      ctx.fillText(`กระดาษคำตอบวิชา: ${exam.title} (ครึ่งแผ่น A4)`, offsetX + padX + 50, height - padY - 15);
+      ctx.fillText(`วิชา: ${exam.title} (ครึ่งแผ่น A4)`, offsetX + padX + 50, height - padY - 15);
     }
 
     // Center Dashed Cutting Line (✂ ตัดตรงกลาง)
@@ -264,7 +284,7 @@ export const pdfGenerator = {
     ctx.fillText('✂ ตัดตามรอยประ (แบ่งครึ่งกระดาษได้ 2 แผ่น)', halfWidth - 170, 30);
     ctx.fillText('✂ ตัดตามรอยประ', halfWidth - 65, height - 20);
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const imgData = canvas.toDataURL('image/jpeg', 0.98);
     const pdf = new jsPDF({
       orientation: 'landscape',
       unit: 'mm',
