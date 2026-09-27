@@ -12,7 +12,6 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
-  Scissors,
 } from 'lucide-react';
 
 interface AnswerSheetViewProps {
@@ -25,7 +24,8 @@ interface AnswerSheetViewProps {
  * - 2 Main frames/tables: Left frame (ข้อ 1-20), Right frame (ข้อ 21-40)
  * - If total <= 20 questions, ONLY the left frame is shown!
  * - Large question numbers, closely aligned next to ก, ข, ค, ง
- * - Full-width wide dotted lines for ชื่อ-สกุล, เลขที่, วันที่สอบ (100% identical on screen, print, and PDF)
+ * - Full-width wide dotted lines for ชื่อ-สกุล, เลขที่, วันที่สอบ
+ * - Clean: No bottom footer, No extra clutter text
  */
 const SingleAnswerSheetHalf: React.FC<{
   exam: Exam;
@@ -103,7 +103,7 @@ const SingleAnswerSheetHalf: React.FC<{
   );
 
   return (
-    <div className="w-[148.5mm] h-[210mm] max-h-[210mm] p-[5mm_6mm] relative flex flex-col justify-between box-border overflow-hidden bg-white text-slate-900">
+    <div className="w-[148.5mm] h-[210mm] max-h-[210mm] p-[5mm_6mm] relative flex flex-col justify-between box-border overflow-hidden bg-white text-slate-900 border border-slate-300">
       {/* 4 Corner Alignment Registration Marks (OMR fiducials for skew correction) */}
       <div className="absolute top-[4.5mm] left-[4.5mm] w-[5.5mm] h-[5.5mm] bg-black pointer-events-none" />
       <div className="absolute top-[4.5mm] right-[4.5mm] w-[5.5mm] h-[5.5mm] bg-black pointer-events-none" />
@@ -112,7 +112,7 @@ const SingleAnswerSheetHalf: React.FC<{
 
       {/* Sheet Content */}
       <div className="flex-1 flex flex-col justify-between">
-        {/* Header Box */}
+        {/* Header Box with solid border */}
         <div className="border-2 border-slate-900 rounded-lg p-2.5 bg-white shrink-0">
           <div className="flex items-start justify-between gap-2 pb-1.5 border-b border-slate-800">
             <div className="flex-1 min-w-0">
@@ -154,7 +154,7 @@ const SingleAnswerSheetHalf: React.FC<{
             )}
           </div>
 
-          {/* Student Fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ (กว้าง เต็มพื้นที่ แสดงผลเหมือนกันทั้งหน้าจอ พิมพ์ และดาวน์โหลด) */}
+          {/* Student Fields: ONLY ชื่อ-สกุล, เลขที่, วันที่สอบ (กว้าง เต็มพื้นที่ ชัดเจน) */}
           <div className="pt-2 text-xs text-slate-900 space-y-2">
             <div className="flex items-center gap-3">
               <div className="flex items-center flex-1 min-w-0">
@@ -194,24 +194,18 @@ const SingleAnswerSheetHalf: React.FC<{
         {/* 2 Main Question Tables / Frames (กรอบซ้าย: ข้อ 1-20, กรอบขวา: ข้อ 21-40) */}
         {rightQuestions.length === 0 ? (
           /* หากมี 20 ข้อ จะแสดงเฉพาะกรอบด้านซ้ายเท่านั้น */
-          <div className="my-1.5 flex-1 flex justify-center items-start w-full">
+          <div className="my-2 flex-1 flex justify-center items-start w-full">
             <div className="w-full max-w-[260px]">
               {renderQuestionTable(leftQuestions)}
             </div>
           </div>
         ) : (
           /* หากมีมากกว่า 20 ข้อ แบ่ง 2 กรอบหลัก: ข้อ 1-20 ซ้าย, ข้อ 21-40 ขวา */
-          <div className="grid grid-cols-2 gap-2 my-1.5 flex-1 items-start w-full">
+          <div className="grid grid-cols-2 gap-2 my-2 flex-1 items-start w-full">
             {renderQuestionTable(leftQuestions)}
             {renderQuestionTable(rightQuestions)}
           </div>
         )}
-
-        {/* Half Footer */}
-        <div className="flex items-center justify-between text-[9px] text-slate-500 border-t border-slate-300 pt-1">
-          <span className="truncate">วิชา: {exam.title} {exam.gradeLevel ? `(${exam.gradeLevel})` : ''}</span>
-          <span className="font-semibold shrink-0">กระดาษคำตอบ (ครึ่งแผ่น A4)</span>
-        </div>
       </div>
     </div>
   );
@@ -268,7 +262,95 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
 
   const currentScale = manualZoom !== null ? manualZoom : viewMode === 'fit' ? fitScale : 1.0;
 
+  /**
+   * Print Handler: Prints ONLY the authentic answer sheet without any webpage UI or background
+   */
   const handlePrint = () => {
+    const element = document.getElementById('printable-answer-sheet');
+    if (!element) {
+      window.print();
+      return;
+    }
+
+    try {
+      // Create dedicated, isolated iframe for 100% pristine answer sheet print
+      const printIframe = document.createElement('iframe');
+      printIframe.style.position = 'fixed';
+      printIframe.style.right = '0';
+      printIframe.style.bottom = '0';
+      printIframe.style.width = '0';
+      printIframe.style.height = '0';
+      printIframe.style.border = '0';
+      document.body.appendChild(printIframe);
+
+      const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        let styles = '';
+        document.querySelectorAll('style, link[rel="stylesheet"]').forEach((el) => {
+          styles += el.outerHTML;
+        });
+
+        doc.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>กระดาษคำตอบ - ${exam.title}</title>
+              ${styles}
+              <style>
+                @page {
+                  size: A4 landscape;
+                  margin: 0;
+                }
+                * {
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+                html, body {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  width: 297mm !important;
+                  height: 210mm !important;
+                  background: #ffffff !important;
+                  overflow: hidden !important;
+                }
+                #printable-answer-sheet {
+                  width: 297mm !important;
+                  height: 210mm !important;
+                  max-height: 210mm !important;
+                  margin: 0 !important;
+                  box-sizing: border-box !important;
+                  transform: none !important;
+                  border: 2px solid #0f172a !important;
+                  box-shadow: none !important;
+                  display: flex !important;
+                  flex-direction: row !important;
+                }
+              </style>
+            </head>
+            <body>
+              ${element.outerHTML}
+            </body>
+          </html>
+        `);
+        doc.close();
+
+        setTimeout(() => {
+          printIframe.contentWindow?.focus();
+          printIframe.contentWindow?.print();
+          setTimeout(() => {
+            if (document.body.contains(printIframe)) {
+              document.body.removeChild(printIframe);
+            }
+          }, 2000);
+        }, 300);
+        return;
+      }
+    } catch (e) {
+      console.warn('Iframe print error, falling back to window.print', e);
+    }
+
     window.print();
   };
 
@@ -388,7 +470,7 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
 
         {/* Right: Actions */}
         <div className="flex items-center gap-2">
-          {/* Print Button */}
+          {/* Print Button (ปุ่มพิมพ์กระดาษคำตอบสีเขียว) */}
           <button
             onClick={handlePrint}
             className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl text-xs sm:text-sm font-medium shadow-md shadow-emerald-900/30 transition-all cursor-pointer"
@@ -442,20 +524,10 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
           <article
             id="printable-answer-sheet"
             ref={printRef}
-            className="w-[297mm] min-h-[210mm] h-[210mm] max-h-[210mm] bg-white shadow-2xl rounded-sm border border-slate-300 relative text-slate-900 select-none box-border flex overflow-hidden"
+            className="w-[297mm] min-h-[210mm] h-[210mm] max-h-[210mm] bg-white shadow-2xl rounded-sm border-2 border-slate-900 relative text-slate-900 select-none box-border flex overflow-hidden"
           >
-            {/* Center Dashed Cutting Line (ตัดตรงกลางกระดาษ) */}
-            <div className="absolute top-0 bottom-0 left-[148.5mm] -translate-x-1/2 flex flex-col items-center justify-between pointer-events-none py-1.5 z-20">
-              <div className="bg-white/95 px-2 py-0.5 text-[9px] font-bold text-slate-600 flex items-center gap-1 border border-slate-400 rounded-full shadow-2xs">
-                <Scissors className="w-3 h-3 text-slate-700" />
-                <span>ตัดตามรอยประ</span>
-              </div>
-              <div className="w-[1px] h-full border-r-2 border-dashed border-slate-400 my-1.5" />
-              <div className="bg-white/95 px-2 py-0.5 text-[9px] font-bold text-slate-600 flex items-center gap-1 border border-slate-400 rounded-full shadow-2xs">
-                <Scissors className="w-3 h-3 text-slate-700" />
-                <span>ตัดแบ่งครึ่งแผ่น</span>
-              </div>
-            </div>
+            {/* Center Dashed Cutting Line (เส้นประตัดแบ่งครึ่งกระดาษ เรียบง่าย ไม่มีข้อความ) */}
+            <div className="absolute top-0 bottom-0 left-[148.5mm] -translate-x-1/2 w-[1px] border-r-2 border-dashed border-slate-400 pointer-events-none z-10" />
 
             {/* Left Copy (ชุดที่ 1) */}
             <SingleAnswerSheetHalf

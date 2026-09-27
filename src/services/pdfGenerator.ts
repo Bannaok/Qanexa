@@ -47,6 +47,7 @@ export const pdfGenerator = {
     clone.style.boxShadow = 'none';
     clone.style.borderRadius = '0';
     clone.style.backgroundColor = '#ffffff';
+    clone.style.border = '2px solid #0f172a';
 
     sandbox.appendChild(clone);
     document.body.appendChild(sandbox);
@@ -262,13 +263,20 @@ export const pdfGenerator = {
         });
       });
 
-      // Footer
-      ctx.font = '16px "Sarabun", sans-serif';
-      ctx.fillStyle = '#64748b';
-      ctx.fillText(`วิชา: ${exam.title} (ครึ่งแผ่น A4)`, offsetX + padX + 50, height - padY - 15);
     }
 
-    // Center Dashed Cutting Line (✂ ตัดตรงกลาง)
+    // Outer border around the entire A4 Landscape paper (เหมือนการแสดงผล)
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(10, 10, width - 20, height - 20);
+
+    // Border around left half sheet and right half sheet
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(20, 20, halfWidth - 30, height - 40);
+    ctx.strokeRect(halfWidth + 10, 20, halfWidth - 30, height - 40);
+
+    // Center Dashed Cutting Line (เส้นประตัดตรงกลาง เรียบง่าย ไม่มีข้อความ)
     ctx.strokeStyle = '#94a3b8';
     ctx.lineWidth = 2;
     ctx.setLineDash([12, 10]);
@@ -277,12 +285,6 @@ export const pdfGenerator = {
     ctx.lineTo(halfWidth, height - 20);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    // Scissor Cut Here Mark
-    ctx.fillStyle = '#475569';
-    ctx.font = 'bold 20px "Sarabun", sans-serif';
-    ctx.fillText('✂ ตัดตามรอยประ (แบ่งครึ่งกระดาษได้ 2 แผ่น)', halfWidth - 170, 30);
-    ctx.fillText('✂ ตัดตามรอยประ', halfWidth - 65, height - 20);
 
     const imgData = canvas.toDataURL('image/jpeg', 0.98);
     const pdf = new jsPDF({
