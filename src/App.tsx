@@ -28,7 +28,7 @@ const MainAppContent: React.FC = () => {
   // Modals state
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'members' | 'pwa' | 'cloudflare'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'members'>('general');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCreateExamOpen, setIsCreateExamOpen] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -106,7 +106,7 @@ const MainAppContent: React.FC = () => {
     setIsCreateExamOpen(true);
   };
 
-  const handleOpenSettingsWithTab = (tab: 'general' | 'members' | 'pwa' | 'cloudflare' = 'general') => {
+  const handleOpenSettingsWithTab = (tab: 'general' | 'members' = 'general') => {
     setSettingsTab(tab);
     setIsSettingsOpen(true);
   };

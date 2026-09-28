@@ -484,26 +484,15 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
 
         {/* Right: Actions */}
         <div className="flex items-center gap-2">
-          {/* Print Button (ปุ่มพิมพ์กระดาษคำตอบสีเขียว) */}
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl text-xs sm:text-sm font-medium shadow-md shadow-emerald-900/30 transition-all cursor-pointer"
-            title="สั่งพิมพ์ A4 แนวนอน (1 แผ่นได้ 2 ชุดข้อสอบ)"
-          >
-            <Printer className="w-4 h-4" />
-            <span className="font-medium">พิมพ์กระดาษคำตอบ</span>
-          </button>
-
-          {/* Download PDF Button */}
+          {/* Download PDF Button (ปุ่มเดียวสีน้ำเงิน) */}
           <button
             onClick={handleDownloadPDF}
             disabled={isGeneratingPdf}
-            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-98 disabled:opacity-60 text-white rounded-xl text-xs sm:text-sm font-medium shadow-md shadow-indigo-900/30 transition-all cursor-pointer"
-            title="ดาวน์โหลดไฟล์ PDF ขนาด A4 แนวนอน"
+            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-98 disabled:opacity-60 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-indigo-900/30 transition-all cursor-pointer"
+            title="ดาวน์โหลดไฟล์ PDF ขนาด A4 แนวนอน (1 แผ่นได้ 2 ชุดข้อสอบ)"
           >
             <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">{isGeneratingPdf ? 'กำลังสร้าง...' : 'ดาวน์โหลด PDF'}</span>
-            <span className="sm:hidden">PDF</span>
+            <span>{isGeneratingPdf ? 'กำลังสร้างไฟล์ PDF...' : 'ดาวน์โหลด PDF'}</span>
           </button>
 
           {/* Close Button */}

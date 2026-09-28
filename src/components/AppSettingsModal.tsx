@@ -3,17 +3,15 @@ import { AppSettings } from '../types';
 import { storageService } from '../services/storageService';
 import { useAuth } from '../services/authContext';
 import { useToast } from '../services/toastContext';
-import { X, Settings, Upload, Image, Clock, Check, Building, Users, ShieldCheck, Cloud, Smartphone } from 'lucide-react';
+import { X, Settings, Upload, Image, Check, Building, Users } from 'lucide-react';
 import { ImageFallback } from './ImageFallback';
 import { MemberManagement } from './MemberManagement';
-import { CloudflareD1Tab } from './CloudflareD1Tab';
-import { PWABackendSettings } from './PWABackendSettings';
 
 interface AppSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSettingsSaved: (updated: AppSettings) => void;
-  initialTab?: 'general' | 'members' | 'pwa' | 'cloudflare';
+  initialTab?: 'general' | 'members';
 }
 
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
@@ -24,7 +22,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 }) => {
   const { currentUser, isAdmin } = useAuth();
   const { success, error, warning } = useToast();
-  const [activeTab, setActiveTab] = useState<'general' | 'members' | 'pwa' | 'cloudflare'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'general' | 'members'>(
+    initialTab === 'members' ? 'members' : 'general'
+  );
   const [settings, setSettings] = useState<AppSettings>(() => storageService.getSettings());
   const [appName, setAppName] = useState(settings.appName);
   const [appLogoUrl, setAppLogoUrl] = useState(settings.appLogoUrl);
@@ -84,8 +84,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 no-print animate-fadeIn overflow-y-auto">
-      <div className={`bg-white rounded-3xl ${activeTab !== 'general' ? 'max-w-4xl' : 'max-w-xl'} w-full shadow-2xl border border-slate-200 overflow-hidden my-auto max-h-[92vh] flex flex-col`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 no-print animate-fadeIn overflow-y-auto">
+      <div className={`bg-white rounded-3xl ${activeTab === 'members' ? 'max-w-5xl lg:max-w-6xl' : 'max-w-xl'} w-full shadow-2xl border border-slate-200 overflow-hidden my-auto max-h-[94vh] flex flex-col transition-all duration-200`}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white shrink-0">
           <div className="flex items-center gap-2.5">
@@ -97,7 +97,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                 การตั้งค่าระบบ (Settings)
               </h3>
               <p className="text-xs text-slate-500">
-                {isAdmin ? 'ตั้งค่าชื่อแอปพลิเคชัน โลโก้ สมาชิก และการเชื่อมต่อ Cloudflare D1' : 'ตั้งค่าข้อมูลทั่วไปของแอปพลิเคชัน'}
+                {isAdmin ? 'ตั้งค่าชื่อแอปพลิเคชัน โลโก้ และจัดการสมาชิก' : 'ตั้งค่าข้อมูลทั่วไปของแอปพลิเคชัน'}
               </p>
             </div>
           </div>
@@ -111,12 +111,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
         {/* Tab Selector if Admin */}
         {isAdmin && (
-          <div className="px-6 pt-4 bg-white border-b border-slate-100 shrink-0">
-            <div className="flex items-center gap-2 overflow-x-auto">
+          <div className="px-6 pt-3 bg-white border-b border-slate-100 shrink-0">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setActiveTab('general')}
-                className={`flex items-center gap-1.5 px-4 py-2 border-b-2 text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+                className={`flex items-center gap-1.5 px-4 py-2 border-b-2 text-xs font-semibold transition-all cursor-pointer ${
                   activeTab === 'general'
                     ? 'border-indigo-600 text-indigo-600'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -129,7 +129,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('members')}
-                className={`flex items-center gap-1.5 px-4 py-2 border-b-2 text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+                className={`flex items-center gap-1.5 px-4 py-2 border-b-2 text-xs font-semibold transition-all cursor-pointer ${
                   activeTab === 'members'
                     ? 'border-purple-600 text-purple-700'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -138,41 +138,15 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                 <Users className="w-4 h-4 text-purple-600" />
                 <span>จัดการสมาชิก (Members)</span>
               </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('pwa')}
-                className={`flex items-center gap-1.5 px-4 py-2 border-b-2 text-xs font-semibold transition-all cursor-pointer shrink-0 ${
-                  activeTab === 'pwa'
-                    ? 'border-emerald-600 text-emerald-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Smartphone className="w-4 h-4 text-emerald-600" />
-                <span>แอปมือถือ (PWA Mobile)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('cloudflare')}
-                className={`flex items-center gap-1.5 px-4 py-2 border-b-2 text-xs font-semibold transition-all cursor-pointer shrink-0 ${
-                  activeTab === 'cloudflare'
-                    ? 'border-amber-500 text-amber-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Cloud className="w-4 h-4 text-amber-500" />
-                <span>Cloudflare D1 & Deploy</span>
-              </button>
             </div>
           </div>
         )}
 
         {/* Content Body */}
-        <div className="overflow-y-auto flex-1 p-6">
+        <div className={`overflow-y-auto flex-1 ${activeTab === 'members' ? 'p-3 sm:p-5' : 'p-6'}`}>
           {activeTab === 'general' ? (
             <form onSubmit={handleSave} className="space-y-5">
-              {/* App Name (บังคับระบุ) */}
+              {/* App Name */}
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">
                   ชื่อแอปพลิเคชัน <span className="text-rose-500">* (บังคับระบุ)</span>
@@ -198,84 +172,69 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                   type="text"
                   value={orgName}
                   onChange={(e) => setOrgName(e.target.value)}
-                  placeholder="เช่น โรงเรียนมัธยมวิทยา หรือ คณะวิทยาศาสตร์"
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="เช่น โรงเรียนสาธิต หรือ กลุ่มสาระการเรียนรู้"
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
                 />
               </div>
 
-              {/* App Logo */}
+              {/* Logo Upload & Preview */}
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
                   <Image className="w-4 h-4 text-slate-400" />
                   โลโก้แอปพลิเคชัน (App Logo)
                 </label>
 
-                <div className="flex items-center gap-4 p-3.5 bg-white border border-slate-200 rounded-2xl">
-                  <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
+                <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border border-slate-200 rounded-2xl bg-slate-50/50">
+                  {/* Current Logo Preview */}
+                  <div className="w-20 h-20 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center overflow-hidden shrink-0 p-1">
                     {appLogoUrl ? (
                       <ImageFallback
                         src={appLogoUrl}
-                        alt="App Logo"
-                        className="w-full h-full object-contain p-1"
-                        fallbackText="โลโก้ชำรุด"
+                        alt="Preview Logo"
+                        className="w-full h-full object-contain"
                         aspectRatio="aspect-square"
                       />
                     ) : (
-                      <div className="w-full h-full bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold text-xl">
-                        {appName ? appName.charAt(0) : 'E'}
+                      <div className="flex flex-col items-center justify-center text-slate-400 text-center p-1">
+                        <Image className="w-6 h-6 mb-1 text-slate-300" />
+                        <span className="text-[10px] leading-tight">ค่าเริ่มต้น</span>
                       </div>
                     )}
                   </div>
 
-                  <div className="flex-1 space-y-2">
-                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-500 hover:text-indigo-600 text-slate-700 rounded-xl text-xs font-medium cursor-pointer shadow-xs transition-colors">
-                      <Upload className="w-3.5 h-3.5" />
-                      อัปโหลดโลโก้ใหม่
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLogoUpload}
-                        className="hidden"
-                      />
-                    </label>
+                  {/* Upload Controls */}
+                  <div className="flex-1 text-center sm:text-left space-y-2">
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                      <label className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold shadow-2xs transition-colors cursor-pointer">
+                        <Upload className="w-4 h-4 text-indigo-600" />
+                        <span>อัปโหลดภาพโลโก้</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleLogoUpload}
+                          className="hidden"
+                        />
+                      </label>
 
-                    {appLogoUrl && (
-                      <button
-                        type="button"
-                        onClick={handleResetDefaultLogo}
-                        className="ml-2 text-xs text-rose-500 hover:underline cursor-pointer"
-                      >
-                        ใช้โลโก้เริ่มต้น
-                      </button>
-                    )}
-                    <div className="text-[11px] text-slate-400">
-                      รองรับไฟล์ PNG, JPG, WebP, SVG ขนาดไม่เกิน 2MB
+                      {appLogoUrl && (
+                        <button
+                          type="button"
+                          onClick={handleResetDefaultLogo}
+                          className="px-3 py-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                        >
+                          ใช้โลโก้เริ่มต้น
+                        </button>
+                      )}
                     </div>
+                    <p className="text-[11px] text-slate-500">
+                      รองรับไฟล์ภาพ JPG, PNG, WebP หรือ SVG แนะนำภาพสี่เหลี่ยมจัตุรัส ไม่เกิน 2MB
+                    </p>
                   </div>
                 </div>
               </div>
 
-              {/* Timestamp Notice */}
-              <div className="p-3.5 bg-amber-50/80 border border-amber-200/80 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900">
-                <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold">วันที่และเวลาที่แก้ไขล่าสุด (Timestamp):</span>
-                  <div className="mt-0.5 text-amber-800 font-mono text-[11px]">
-                    {settings.lastUpdated
-                      ? new Date(settings.lastUpdated).toLocaleString('th-TH', {
-                          dateStyle: 'full',
-                          timeStyle: 'medium',
-                        })
-                      : 'ยังไม่มีประวัติการแก้ไข'}
-                  </div>
-                  <div className="text-[11px] text-amber-700/80 mt-0.5">
-                    แก้ไขโดย: {settings.updatedBy || 'ระบบ'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              {/* Action Buttons */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={onClose}
@@ -293,14 +252,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                 </button>
               </div>
             </form>
-          ) : activeTab === 'members' ? (
+          ) : (
             <div className="space-y-4">
               <MemberManagement />
             </div>
-          ) : activeTab === 'pwa' ? (
-            <PWABackendSettings />
-          ) : (
-            <CloudflareD1Tab />
           )}
         </div>
       </div>
