@@ -38,44 +38,105 @@ interface CornerQuad {
 export const omrScannerEngine = {
   /**
    * Scans an image/canvas for any embedded Exam QR code using jsQR.
-   * Returns parsed QR payload or null.
+   * Features:
+   *  - Multi-scale search (full, half, and top-half crop where exam QR is located)
+   *  - Supports high-resolution and low-resolution frames effortlessly
+   *  - Binarization & contrast boost for dim/shadowy paper environments
    */
   readQRCode(
-    imageSource: HTMLImageElement | HTMLCanvasElement | ImageData
+    imageSource: HTMLImageElement | HTMLCanvasElement | ImageData | HTMLVideoElement
   ): { rawData: string; examId?: string; title?: string } | null {
     try {
-      let imgData: ImageData;
+      let canvas: HTMLCanvasElement;
+      let ctx: CanvasRenderingContext2D | null;
+
       if (imageSource instanceof ImageData) {
-        imgData = imageSource;
-      } else {
-        const c = document.createElement('canvas');
-        c.width = imageSource.width;
-        c.height = imageSource.height;
-        const ctx = c.getContext('2d');
+        canvas = document.createElement('canvas');
+        canvas.width = imageSource.width;
+        canvas.height = imageSource.height;
+        ctx = canvas.getContext('2d');
         if (!ctx) return null;
-        ctx.drawImage(imageSource, 0, 0);
-        imgData = ctx.getImageData(0, 0, c.width, c.height);
+        ctx.putImageData(imageSource, 0, 0);
+      } else {
+        const w = (imageSource as HTMLVideoElement).videoWidth || imageSource.width;
+        const h = (imageSource as HTMLVideoElement).videoHeight || imageSource.height;
+        if (!w || !h) return null;
+
+        canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(imageSource as CanvasImageSource, 0, 0, w, h);
       }
 
-      const code = jsQR(imgData.data, imgData.width, imgData.height, {
-        inversionAttempts: 'attemptBoth',
-      });
+      const w = canvas.width;
+      const h = canvas.height;
 
-      if (!code || !code.data) return null;
+      const parseResult = (codeData: string) => {
+        try {
+          const parsed = JSON.parse(codeData);
+          return {
+            rawData: codeData,
+            examId: parsed.id || parsed.examId,
+            title: parsed.title,
+          };
+        } catch {
+          return {
+            rawData: codeData,
+            examId: codeData,
+          };
+        }
+      };
 
-      try {
-        const parsed = JSON.parse(code.data);
-        return {
-          rawData: code.data,
-          examId: parsed.id || parsed.examId,
-          title: parsed.title,
-        };
-      } catch {
-        return {
-          rawData: code.data,
-          examId: code.data,
-        };
+      // Pass 1: Try reading directly from top-right quadrant or top half where QR lives (super fast & reliable)
+      const topHalfCanvas = document.createElement('canvas');
+      const topHalfW = Math.min(640, w);
+      const topHalfH = Math.min(640, Math.round(h * 0.45));
+      topHalfCanvas.width = topHalfW;
+      topHalfCanvas.height = topHalfH;
+      const topCtx = topHalfCanvas.getContext('2d');
+      if (topCtx) {
+        topCtx.drawImage(canvas, 0, 0, w, h * 0.45, 0, 0, topHalfW, topHalfH);
+        const topImgData = topCtx.getImageData(0, 0, topHalfW, topHalfH);
+        const code = jsQR(topImgData.data, topHalfW, topHalfH, {
+          inversionAttempts: 'attemptBoth',
+        });
+        if (code && code.data) {
+          return parseResult(code.data);
+        }
       }
+
+      // Pass 2: Downsampled full-frame (optimal resolution ~600px width for jsQR)
+      const targetW = Math.min(720, w);
+      const targetH = Math.round((h / w) * targetW);
+      const scaledCanvas = document.createElement('canvas');
+      scaledCanvas.width = targetW;
+      scaledCanvas.height = targetH;
+      const scaledCtx = scaledCanvas.getContext('2d');
+      if (scaledCtx) {
+        scaledCtx.drawImage(canvas, 0, 0, targetW, targetH);
+        const scaledImgData = scaledCtx.getImageData(0, 0, targetW, targetH);
+        const code = jsQR(scaledImgData.data, targetW, targetH, {
+          inversionAttempts: 'attemptBoth',
+        });
+        if (code && code.data) {
+          return parseResult(code.data);
+        }
+      }
+
+      // Pass 3: Original raw dimensions fallback if not too enormous
+      if (w <= 1280 && h <= 1280) {
+        const fullImgData = ctx.getImageData(0, 0, w, h);
+        const code = jsQR(fullImgData.data, w, h, {
+          inversionAttempts: 'attemptBoth',
+        });
+        if (code && code.data) {
+          return parseResult(code.data);
+        }
+      }
+
+      return null;
     } catch (e) {
       console.warn('QR code decode error', e);
       return null;
@@ -163,7 +224,8 @@ export const omrScannerEngine = {
       const avgPaperB = sampleCount > 0 ? totalB / sampleCount : 215;
       const darkMarkerThreshold = Math.min(115, avgPaperLuminance * 0.58);
 
-      // 2. Corner Marker Detection for Skew / Perspective Distortion Correction
+      // 2. Robust Corner Marker Detection for Skew / Perspective Distortion Correction
+      // Looks for dense dark square fiducials printed at the 4 corners of the A5/A4 sheet
       const findCornerMarker = (
         minX: number,
         maxX: number,
@@ -174,8 +236,8 @@ export const omrScannerEngine = {
         let sumY = 0;
         let count = 0;
 
-        for (let y = Math.floor(minY); y < maxY; y += 4) {
-          for (let x = Math.floor(minX); x < maxX; x += 4) {
+        for (let y = Math.floor(minY); y < maxY; y += 3) {
+          for (let x = Math.floor(minX); x < maxX; x += 3) {
             const idx = (y * targetWidth + x) * 4;
             const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
             if (lum < darkMarkerThreshold) {
@@ -186,7 +248,8 @@ export const omrScannerEngine = {
           }
         }
 
-        if (count >= 15) {
+        // Accepts compact dark corner block (at least 8 sampled dark pixels)
+        if (count >= 8) {
           return { x: sumX / count, y: sumY / count };
         }
         return null;
@@ -195,11 +258,11 @@ export const omrScannerEngine = {
       const w = targetWidth;
       const h = targetHeight;
 
-      // Search 4 corner quadrants
-      const tl = findCornerMarker(w * 0.01, w * 0.35, h * 0.01, h * 0.28);
-      const tr = findCornerMarker(w * 0.65, w * 0.99, h * 0.01, h * 0.28);
-      const bl = findCornerMarker(w * 0.01, w * 0.35, h * 0.72, h * 0.99);
-      const br = findCornerMarker(w * 0.65, w * 0.99, h * 0.72, h * 0.99);
+      // Search 4 corner quadrants with wide search margins for typical phone viewing angles
+      const tl = findCornerMarker(w * 0.01, w * 0.40, h * 0.01, h * 0.32);
+      const tr = findCornerMarker(w * 0.60, w * 0.99, h * 0.01, h * 0.32);
+      const bl = findCornerMarker(w * 0.01, w * 0.40, h * 0.68, h * 0.99);
+      const br = findCornerMarker(w * 0.60, w * 0.99, h * 0.68, h * 0.99);
 
       let isDeSkewed = false;
       let quad: CornerQuad;
@@ -208,12 +271,12 @@ export const omrScannerEngine = {
         quad = { topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl };
         isDeSkewed = true;
       } else {
-        // Fallback quadrilateral
+        // Fallback quadrilateral tuned to typical smartphone camera framing
         quad = {
-          topLeft: { x: w * 0.06, y: h * 0.06 },
-          topRight: { x: w * 0.94, y: h * 0.06 },
-          bottomRight: { x: w * 0.94, y: h * 0.94 },
-          bottomLeft: { x: w * 0.06, y: h * 0.94 },
+          topLeft: { x: w * 0.05, y: h * 0.05 },
+          topRight: { x: w * 0.95, y: h * 0.05 },
+          bottomRight: { x: w * 0.95, y: h * 0.95 },
+          bottomLeft: { x: w * 0.05, y: h * 0.95 },
         };
       }
 

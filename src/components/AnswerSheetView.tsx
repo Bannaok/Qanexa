@@ -146,16 +146,16 @@ const SingleAnswerSheetHalf: React.FC<{
             </div>
           </div>
 
-          {/* Top Right: QR Code Box */}
+          {/* Top Right: QR Code Box (ขนาดใหญ่ คมชัด สแกนติดง่ายในระยะกล้องมือถือ) */}
           {qrCodeUrl && (
-            <div className="flex flex-col items-center justify-center p-0.5 bg-white border border-slate-900 rounded shrink-0 shadow-2xs">
+            <div className="flex flex-col items-center justify-center p-1 bg-white border-2 border-slate-950 rounded-md shrink-0 shadow-xs">
               <img
                 src={qrCodeUrl}
                 alt="Exam QR Code"
-                className="w-10 h-10 object-contain"
+                className="w-14 h-14 object-contain"
               />
-              <span className="text-[6.5px] font-mono font-bold text-slate-700 uppercase tracking-tighter">
-                รหัสข้อสอบ
+              <span className="text-[7.5px] font-mono font-black text-slate-900 uppercase tracking-tight mt-0.5">
+                QR รหัสข้อสอบ
               </span>
             </div>
           )}
@@ -243,12 +243,12 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
   const [manualZoom, setManualZoom] = useState<number | null>(null);
   const [fitScale, setFitScale] = useState<number>(0.85);
 
-  // Generate distinct QR code
+  // Generate distinct QR code (high resolution 320px for crisp camera reading at any distance)
   useEffect(() => {
     QRCode.toDataURL(getExamQRPayload(exam), {
       margin: 1,
-      width: 200,
-      errorCorrectionLevel: 'M',
+      width: 320,
+      errorCorrectionLevel: 'L', // 'L' provides least dense pattern, huge blocks, easiest for smartphone camera from far away
     })
       .then((url) => setQrCodeUrl(url))
       .catch((err) => console.error('Failed to generate QR code', err));

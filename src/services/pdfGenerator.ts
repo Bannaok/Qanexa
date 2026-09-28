@@ -184,12 +184,20 @@ export const pdfGenerator = {
       ctx.fillText('ชื่อ - สกุล: ....................................................................................................................', offsetX + padX + 70, padY + 130);
       ctx.fillText('ชั้น: ....................    เลขที่: ....................    วันที่: ................................................................', offsetX + padX + 70, padY + 175);
 
-      // QR Code
+      // QR Code (Large & framed for immediate detection)
       if (qrImg) {
-        ctx.drawImage(qrImg, offsetX + halfWidth - padX - 50 - 150, padY + 25, 140, 140);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(offsetX + halfWidth - padX - 50 - 150, padY + 25, 140, 155);
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(offsetX + halfWidth - padX - 50 - 150, padY + 25, 140, 155);
+
+        ctx.drawImage(qrImg, offsetX + halfWidth - padX - 50 - 146, padY + 29, 132, 132);
         ctx.font = 'bold 12px "Sarabun", monospace';
-        ctx.fillStyle = '#475569';
-        ctx.fillText('รหัสข้อสอบ', offsetX + halfWidth - padX - 50 - 120, padY + 185);
+        ctx.fillStyle = '#0f172a';
+        ctx.textAlign = 'center';
+        ctx.fillText('QR รหัสข้อสอบ', offsetX + halfWidth - padX - 50 - 80, padY + 174);
+        ctx.textAlign = 'left';
       }
 
       // Instruction Badge (เหมือน images.png)

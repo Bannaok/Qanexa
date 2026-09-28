@@ -24,6 +24,10 @@ import {
   QrCode,
   Sparkles,
   ChevronDown,
+  ChevronUp,
+  ListOrdered,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface ScannerModalProps {
@@ -84,6 +88,9 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   const [sensitivity, setSensitivity] = useState(0.26);
   const [showSensitivitySlider, setShowSensitivitySlider] = useState(false);
   const [autoScanEnabled, setAutoScanEnabled] = useState(false);
+
+  // State to toggle detailed question-by-question answer key breakdown
+  const [showAnswersList, setShowAnswersList] = useState(true);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -241,29 +248,18 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         return;
       }
 
-      // Check once every 160ms for low CPU usage & high responsiveness
-      if (timestamp - lastScanTime >= 160 && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+      // Check once every 120ms for instant real-time detection & responsiveness
+      if (timestamp - lastScanTime >= 120 && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
         lastScanTime = timestamp;
         const vid = videoRef.current;
         const w = vid.videoWidth;
         const h = vid.videoHeight;
 
         if (w > 0 && h > 0 && qrCtx) {
-          // Downsample for blazing fast QR code detection (width ~480px)
-          const scale = Math.min(1.0, 480 / w);
-          const cw = Math.round(w * scale);
-          const ch = Math.round(h * scale);
-          qrCanvas.width = cw;
-          qrCanvas.height = ch;
-
-          qrCtx.drawImage(vid, 0, 0, cw, ch);
-          const imgData = qrCtx.getImageData(0, 0, cw, ch);
-          const code = jsQR(imgData.data, cw, ch, {
-            inversionAttempts: 'dontInvert',
-          });
-
-          if (code && code.data && code.data !== lastDetectedQR) {
-            handleDetectedQRCode(code.data);
+          // Sample using multi-pass qr reader
+          const qrInfo = omrScannerEngine.readQRCode(vid);
+          if (qrInfo && qrInfo.rawData && qrInfo.rawData !== lastDetectedQR) {
+            handleDetectedQRCode(qrInfo.rawData);
           }
         }
       }
@@ -768,6 +764,69 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                   <span>กรอบเขียว (✓) = ถูก | กรอบแดง (X) = ผิด</span>
                   <span className="text-emerald-400 font-semibold">ตรวจจับตรงจุด</span>
                 </div>
+              </div>
+
+              {/* Detailed Question-by-Question Answer Key Breakdown */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => setShowAnswersList(!showAnswersList)}
+                  className="w-full p-3.5 bg-slate-800/80 hover:bg-slate-800 text-left flex items-center justify-between transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <ListOrdered className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-bold text-slate-200">
+                      เฉลยรายข้อ ({scanOutput.score}/{scanOutput.total} ข้อถูก)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <span>{showAnswersList ? 'ย่อเฉลย' : 'ดูเฉลยละเอียด'}</span>
+                    {showAnswersList ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
+                </button>
+
+                {showAnswersList && (
+                  <div className="p-3 max-h-52 overflow-y-auto divide-y divide-slate-800">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {scanOutput.answers.map((ans) => {
+                        const thaiLabels = ['ก', 'ข', 'ค', 'ง', 'จ'];
+                        const selectedText = ans.selectedChoice !== null ? thaiLabels[ans.selectedChoice] || `${ans.selectedChoice + 1}` : 'ไม่ตอบ';
+                        const correctText = thaiLabels[ans.correctChoice] || `${ans.correctChoice + 1}`;
+
+                        return (
+                          <div
+                            key={ans.questionNumber}
+                            className={`p-2 rounded-xl border flex items-center justify-between text-xs ${
+                              ans.isCorrect
+                                ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+                                : 'bg-rose-950/30 border-rose-500/30 text-rose-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 font-mono">
+                              <span className="font-bold text-slate-400 text-[11px]">
+                                ข้อ {ans.questionNumber}:
+                              </span>
+                              <span className={`font-black px-1.5 py-0.5 rounded text-xs ${ans.isCorrect ? 'bg-emerald-600/30 text-emerald-300' : 'bg-rose-600/30 text-rose-300'}`}>
+                                {selectedText}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              {ans.isCorrect ? (
+                                <Check className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <div className="flex items-center gap-1 text-[11px]">
+                                  <span className="text-slate-400 font-mono">เฉลย:</span>
+                                  <span className="font-bold text-emerald-400 underline">{correctText}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Student Identification Form */}
