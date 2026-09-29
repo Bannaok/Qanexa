@@ -23,12 +23,12 @@ export interface ScanAnalysisResult {
   detectedExamId?: string;
 }
 
-interface Point {
+export interface Point {
   x: number;
   y: number;
 }
 
-interface CornerQuad {
+export interface CornerQuad {
   topLeft: Point;
   topRight: Point;
   bottomRight: Point;
@@ -39,14 +39,70 @@ export interface ParsedQRExam {
   rawData: string;
   examId?: string;
   title?: string;
+  gradeLevel?: string;
   questionCount?: number;
+  keyHash?: string;
+  versionTimestamp?: number;
+}
+
+export interface FrameQualityEvaluation {
+  isReady: boolean;
+  statusColor: 'green' | 'red';
+  statusTitle: string;
+  statusMessage: string;
+  hasAllCorners: boolean;
+  cornersFound: number;
+  detectedCorners: {
+    topLeft: Point | null;
+    topRight: Point | null;
+    bottomLeft: Point | null;
+    bottomRight: Point | null;
+  };
+  metrics: {
+    sharpness: number;
+    brightness: number;
+    isWellLit: boolean;
+    isSharp: boolean;
+    isWellAligned: boolean;
+  };
 }
 
 export function parseExamQRCodeData(codeData: string): ParsedQRExam {
   if (!codeData) return { rawData: '' };
   const trimmed = codeData.trim();
 
-  // 1. Format: EXAM:<id>|<q> or EXAM:<id>
+  // 1. Format: EXAM:v2|<id>|<q>|<keyHash>|<title>|<grade>|<updateTs>
+  if (trimmed.startsWith('EXAM:v2|')) {
+    const parts = trimmed.split('|');
+    const id = parts[1]?.trim();
+    const qCount = parts[2] ? parseInt(parts[2], 10) : undefined;
+    const keyHash = parts[3]?.trim();
+    let title: string | undefined;
+    let gradeLevel: string | undefined;
+    try {
+      title = parts[4] ? decodeURIComponent(parts[4]) : undefined;
+    } catch {
+      title = parts[4];
+    }
+    try {
+      gradeLevel = parts[5] ? decodeURIComponent(parts[5]) : undefined;
+    } catch {
+      gradeLevel = parts[5];
+    }
+    const updateTs = parts[6] ? parseInt(parts[6], 10) : undefined;
+
+    return {
+      rawData: trimmed,
+      examId: id,
+      questionCount: isNaN(qCount as number) ? undefined : qCount,
+      keyHash,
+      title: title || undefined,
+      gradeLevel: gradeLevel || undefined,
+      versionTimestamp: isNaN(updateTs as number) ? undefined : updateTs,
+    };
+  }
+
+  // 2. Format: Legacy EXAM:<id>|<q> or EXAM:<id>
   if (trimmed.startsWith('EXAM:')) {
     const body = trimmed.substring(5).trim();
     const parts = body.split('|');
@@ -59,7 +115,7 @@ export function parseExamQRCodeData(codeData: string): ParsedQRExam {
     };
   }
 
-  // 2. Format: JSON
+  // 3. Format: JSON
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const parsed = JSON.parse(trimmed);
@@ -67,14 +123,16 @@ export function parseExamQRCodeData(codeData: string): ParsedQRExam {
         rawData: trimmed,
         examId: parsed.id || parsed.examId,
         title: parsed.title,
+        gradeLevel: parsed.gradeLevel || parsed.grade,
         questionCount: parsed.q || parsed.questionCount,
+        keyHash: parsed.keyHash || parsed.kh,
       };
     } catch {
       // ignore
     }
   }
 
-  // 3. Fallback: raw ID string
+  // 4. Fallback: raw ID string
   return {
     rawData: trimmed,
     examId: trimmed,
@@ -201,6 +259,232 @@ export const omrScannerEngine = {
     } catch (e) {
       console.warn('QR code decode error', e);
       return null;
+    }
+  },
+
+  /**
+   * Real-time professional camera frame quality & answer sheet boundary detector.
+   * Evaluates:
+   *  1. 4 Corner Registration Fiducial Marks (TL, TR, BL, BR)
+   *  2. Sharpness & Motion Blur
+   *  3. Lighting & Paper Luminance
+   *  4. Perspective Quad Alignment
+   * Returns GREEN (ready for auto-scan) or RED (not ready / guidance required).
+   */
+  evaluateFrameQuality(
+    videoSource: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement
+  ): FrameQualityEvaluation {
+    const defaultRed = (title: string, msg: string, cornersFound = 0): FrameQualityEvaluation => ({
+      isReady: false,
+      statusColor: 'red',
+      statusTitle: title,
+      statusMessage: msg,
+      hasAllCorners: false,
+      cornersFound,
+      detectedCorners: { topLeft: null, topRight: null, bottomLeft: null, bottomRight: null },
+      metrics: { sharpness: 0, brightness: 0, isWellLit: false, isSharp: false, isWellAligned: false },
+    });
+
+    try {
+      let srcW = 0;
+      let srcH = 0;
+      if (videoSource instanceof HTMLVideoElement) {
+        srcW = videoSource.videoWidth;
+        srcH = videoSource.videoHeight;
+      } else {
+        srcW = (videoSource as any).width || 0;
+        srcH = (videoSource as any).height || 0;
+      }
+
+      if (!srcW || !srcH) {
+        return defaultRed('ไม่พบสัญญาณภาพจากกล้อง', 'กำลังรอสัญญาณวิดีโอ...');
+      }
+
+      // Fast downsample to 480px width
+      const targetW = 480;
+      const targetH = Math.max(270, Math.round((srcH / srcW) * targetW));
+
+      const fast = getSharedFastCanvas(targetW, targetH);
+      if (!fast) {
+        return defaultRed('ระบบประมวลผลไม่พร้อม', 'ไม่สามารถสร้างหน่วยความจำภาพได้');
+      }
+
+      const { ctx } = fast;
+      ctx.drawImage(videoSource as CanvasImageSource, 0, 0, targetW, targetH);
+      const imgData = ctx.getImageData(0, 0, targetW, targetH);
+      const data = imgData.data;
+
+      // 1. Calculate Average Luminance & Edge Sharpness (variance of gradients)
+      let totalLum = 0;
+      let lumSamples = 0;
+      let totalGradient = 0;
+      let gradSamples = 0;
+
+      const stepY = 6;
+      const stepX = 6;
+
+      for (let y = 10; y < targetH - 10; y += stepY) {
+        for (let x = 10; x < targetW - 10; x += stepX) {
+          const idx = (y * targetW + x) * 4;
+          const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+          totalLum += lum;
+          lumSamples++;
+
+          // Sharpness sample
+          const rightIdx = (y * targetW + (x + 2)) * 4;
+          const downIdx = ((y + 2) * targetW + x) * 4;
+          const rLum = 0.299 * data[rightIdx] + 0.587 * data[rightIdx + 1] + 0.114 * data[rightIdx + 2];
+          const dLum = 0.299 * data[downIdx] + 0.587 * data[downIdx + 1] + 0.114 * data[downIdx + 2];
+          const grad = Math.abs(rLum - lum) + Math.abs(dLum - lum);
+          totalGradient += grad;
+          gradSamples++;
+        }
+      }
+
+      const avgBrightness = lumSamples > 0 ? totalLum / lumSamples : 128;
+      const avgSharpness = gradSamples > 0 ? totalGradient / gradSamples : 0;
+
+      const isWellLit = avgBrightness >= 50 && avgBrightness <= 245;
+      const isSharp = avgSharpness >= 5.0; // Clear printed text & lines
+
+      // 2. Search 4 Corner Fiducial Markers
+      const darkMarkerThreshold = Math.min(105, avgBrightness * 0.58);
+
+      const findCornerInRegion = (
+        minX: number,
+        maxX: number,
+        minY: number,
+        maxY: number
+      ): Point | null => {
+        let sumX = 0;
+        let sumY = 0;
+        let count = 0;
+
+        for (let y = Math.floor(minY); y < maxY; y += 3) {
+          for (let x = Math.floor(minX); x < maxX; x += 3) {
+            const idx = (y * targetW + x) * 4;
+            const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+            if (lum < darkMarkerThreshold) {
+              sumX += x;
+              sumY += y;
+              count++;
+            }
+          }
+        }
+
+        // Must find a solid marker cluster (around 5 to 160 pixels in downsampled scale)
+        if (count >= 5 && count <= 160) {
+          return {
+            x: (sumX / count) / targetW,
+            y: (sumY / count) / targetH,
+          };
+        }
+        return null;
+      };
+
+      // Search the 4 respective quadrants
+      const tl = findCornerInRegion(targetW * 0.01, targetW * 0.38, targetH * 0.01, targetH * 0.38);
+      const tr = findCornerInRegion(targetW * 0.62, targetW * 0.99, targetH * 0.01, targetH * 0.38);
+      const bl = findCornerInRegion(targetW * 0.01, targetW * 0.38, targetH * 0.62, targetH * 0.99);
+      const br = findCornerInRegion(targetW * 0.62, targetW * 0.99, targetH * 0.62, targetH * 0.99);
+
+      let cornersFound = 0;
+      if (tl) cornersFound++;
+      if (tr) cornersFound++;
+      if (bl) cornersFound++;
+      if (br) cornersFound++;
+
+      const hasAllCorners = cornersFound === 4;
+
+      // 3. Geometry / Alignment verification
+      let isWellAligned = false;
+      if (hasAllCorners && tl && tr && bl && br) {
+        const topDist = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+        const botDist = Math.hypot(br.x - bl.x, br.y - bl.y);
+        const leftDist = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+        const rightDist = Math.hypot(br.x - tr.x, br.y - tr.y);
+
+        if (topDist > 0.30 && botDist > 0.30 && leftDist > 0.30 && rightDist > 0.30) {
+          isWellAligned = true;
+        }
+      }
+
+      // 4. Decision matrix
+      if (!isWellLit) {
+        return {
+          isReady: false,
+          statusColor: 'red',
+          statusTitle: 'แสงไม่เพียงพอ / มีเงาบัง',
+          statusMessage: avgBrightness < 50
+            ? 'แสงสว่างน้อยเกินไป กรุณาเพิ่มแสงหรือเปิดไฟแฟลช'
+            : 'มีแสงสะท้อนจ้าบนกระดาษ กรุณาปรับมุมกล้อง',
+          hasAllCorners,
+          cornersFound,
+          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp, isWellAligned },
+        };
+      }
+
+      if (cornersFound < 4) {
+        const missingLabels: string[] = [];
+        if (!tl) missingLabels.push('บนซ้าย');
+        if (!tr) missingLabels.push('บนขวา');
+        if (!bl) missingLabels.push('ล่างซ้าย');
+        if (!br) missingLabels.push('ล่างขวา');
+
+        return {
+          isReady: false,
+          statusColor: 'red',
+          statusTitle: `จับมุมกระดาษได้ ${cornersFound}/4 มุม`,
+          statusMessage: cornersFound === 0
+            ? 'เล็งกล้องให้เห็นกระดาษคำตอบครบทั้ง 4 มุม'
+            : `ขาดมุม: ${missingLabels.join(', ')} กรุณาขยับให้เห็นครบ`,
+          hasAllCorners: false,
+          cornersFound,
+          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp, isWellAligned },
+        };
+      }
+
+      if (!isWellAligned) {
+        return {
+          isReady: false,
+          statusColor: 'red',
+          statusTitle: 'กระดาษเอียงหรืออยู่ไกลเกินไป',
+          statusMessage: 'กรุณาถือกล้องให้ตรงและขยับเข้ามาใกล้กระดาษอีกเล็กน้อย',
+          hasAllCorners: true,
+          cornersFound: 4,
+          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp, isWellAligned: false },
+        };
+      }
+
+      if (!isSharp) {
+        return {
+          isReady: false,
+          statusColor: 'red',
+          statusTitle: 'ภาพเบลอ / ยังไม่โฟกัส',
+          statusMessage: 'กรุณาถือกล้องให้นิ่งเพื่อให้ระบบจับโฟกัสรอยกากบาท',
+          hasAllCorners: true,
+          cornersFound: 4,
+          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp: false, isWellAligned: true },
+        };
+      }
+
+      // All quality parameters are met! Ready for 100% precision auto-scan
+      return {
+        isReady: true,
+        statusColor: 'green',
+        statusTitle: 'กระดาษชัดเจนระดับมืออาชีพ',
+        statusMessage: 'จับตำแหน่งครบ 4 มุม แสงและโฟกัสสมบูรณ์ กำลังตรวจอัตโนมัติ...',
+        hasAllCorners: true,
+        cornersFound: 4,
+        detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+        metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit: true, isSharp: true, isWellAligned: true },
+      };
+    } catch (e) {
+      return defaultRed('ระบบประมวลผลข้อผิดพลาด', 'กรุณาลองใหม่อีกครั้ง');
     }
   },
 

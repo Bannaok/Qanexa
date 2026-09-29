@@ -54,22 +54,26 @@ export const MinimalHomeView: React.FC<MinimalHomeViewProps> = ({
         {/* Item 2: สแกนคิวอาร์โค้ด / สแกนตรวจข้อสอบ (QR & OMR Scanner) */}
         <div
           onClick={onOpenQuickScan}
-          className="group p-4 sm:p-6 bg-white border border-slate-200 hover:border-emerald-400 rounded-3xl transition-all shadow-xs hover:shadow-md cursor-pointer flex items-center justify-between gap-3 sm:gap-4"
+          className="group p-4 sm:p-6 bg-white border border-slate-200 hover:border-emerald-500 rounded-3xl transition-all shadow-xs hover:shadow-lg cursor-pointer flex items-center justify-between gap-3 sm:gap-4 relative overflow-hidden"
         >
           <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-            <div className="w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-emerald-50 group-hover:bg-emerald-600 text-emerald-600 group-hover:text-white flex items-center justify-center transition-colors shrink-0">
+            <div className="w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-emerald-50 group-hover:bg-emerald-600 text-emerald-600 group-hover:text-white flex items-center justify-center transition-colors shrink-0 shadow-xs">
               <QrCode className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-nowrap whitespace-nowrap">
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                 <span className="font-mono text-xs font-bold text-slate-400 shrink-0">02.</span>
-                <h2 className="font-heading font-bold text-base sm:text-lg text-slate-900 group-hover:text-emerald-600 transition-colors whitespace-nowrap shrink-0">
+                <h2 className="font-heading font-bold text-base sm:text-lg text-slate-900 group-hover:text-emerald-600 transition-colors shrink-0">
                   สแกนคิวอาร์โค้ด
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-emerald-100 text-emerald-800 whitespace-nowrap shrink-0">
-                  ตรวจอัตโนมัติทุกวิชา
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-emerald-100 text-emerald-800 shrink-0 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  สแกนตรวจได้ทุกวิชา • ออโต้
                 </span>
               </div>
+              <p className="text-xs text-slate-500 mt-1 truncate">
+                สแกนได้ทุกวิชาและทุกระดับชั้น • จับกระดาษคำตอบเขียว-แดงแม่นยำระดับมืออาชีพ
+              </p>
             </div>
           </div>
 

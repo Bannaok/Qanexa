@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Exam, ScanResult, QuestionAnswer } from '../types';
-import { omrScannerEngine, ParsedQRExam } from '../services/omrScannerEngine';
+import { omrScannerEngine, ParsedQRExam, FrameQualityEvaluation } from '../services/omrScannerEngine';
 import { storageService } from '../services/storageService';
 import { useAuth } from '../services/authContext';
 import { useToast } from '../services/toastContext';
@@ -93,6 +93,9 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   // State to toggle detailed question-by-question answer key breakdown
   const [showAnswersList, setShowAnswersList] = useState(true);
 
+  // Real-time camera quality & 4 corner fiducials detection state (Green vs Red)
+  const [frameQuality, setFrameQuality] = useState<FrameQualityEvaluation | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -100,13 +103,15 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   const isScanningRef = useRef(false);
   const isProcessingRef = useRef(false);
   const lastAutoTriggerTimeRef = useRef(0);
+  const consecutiveGreenFramesRef = useRef(0);
+  const matchedExamRef = useRef<Exam | null>(initialExam || null);
 
   // Load fresh exams list
   useEffect(() => {
     if (allExams.length > 0) {
       setExamsList(allExams);
     } else {
-      setExamsList(storageService.getExams());
+      setExamsList(storageService.getAllExamsRaw());
     }
   }, [allExams, isOpen]);
 
@@ -114,9 +119,11 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   useEffect(() => {
     if (initialExam) {
       setActiveExam(initialExam);
+      matchedExamRef.current = initialExam;
     } else {
       // If none provided, start in Universal QR Auto-Detect Mode
       setActiveExam(null);
+      matchedExamRef.current = null;
     }
   }, [initialExam, isOpen]);
 
@@ -237,8 +244,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   };
 
   /**
-   * Continuous real-time QR code detection loop
-   * Looks for exam QR codes in video frames and auto-matches the exam
+   * Continuous real-time QR code & frame quality detection loop
+   * Evaluates paper boundaries (4 fiducials, blur, lighting) and matches exams
    */
   const startQRScanningLoop = () => {
     let lastScanTime = 0;
@@ -249,8 +256,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         return;
       }
 
-      // Check once every 140ms for lightning-fast responsiveness with minimal CPU usage
-      if (timestamp - lastScanTime >= 140 && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+      // Check once every 120ms for ultra-responsive feedback
+      if (timestamp - lastScanTime >= 120 && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
         lastScanTime = timestamp;
         const vid = videoRef.current;
         const w = vid.videoWidth;
@@ -258,9 +265,67 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
         if (w > 0 && h > 0) {
           try {
+            // 1. Real-time Frame Quality & 4 Corner Fiducials evaluation (Green vs Red)
+            const quality = omrScannerEngine.evaluateFrameQuality(vid);
+            setFrameQuality(quality);
+
+            // 2. Read QR Code for exam detection & answer key versioning
             const qrInfo = await omrScannerEngine.readQRCodeFast(vid);
+            let currentTargetExam = activeExam || matchedExamRef.current;
+
             if (qrInfo && qrInfo.rawData) {
-              handleDetectedQRCode(qrInfo);
+              setLastDetectedQR(qrInfo.rawData);
+              const freshList = storageService.getAllExamsRaw();
+              const examId = qrInfo.examId;
+              const examTitle = qrInfo.title;
+
+              const matched = freshList.find(
+                (e) =>
+                  (examId && (e.id === examId || e.id.toLowerCase() === examId.toLowerCase())) ||
+                  (examTitle && e.title.trim().toLowerCase() === examTitle.trim().toLowerCase())
+              );
+
+              if (matched) {
+                currentTargetExam = matched;
+                matchedExamRef.current = matched;
+                setActiveExam(matched);
+                const gradeText = matched.gradeLevel || qrInfo.gradeLevel || '';
+                setQrDetectedNotice(`วิชา: ${matched.title}${gradeText ? ` (${gradeText})` : ''} • ${matched.questionCount} ข้อ`);
+              }
+            }
+
+            // 3. Auto-Scan execution:
+            // MUST be green (quality.isReady === true), meaning all 4 fiducials found, sharp, not blurry, well-lit
+            if (autoScanEnabled && !isProcessingRef.current && !scanOutput) {
+              if (quality.isReady) {
+                consecutiveGreenFramesRef.current += 1;
+
+                // Require 2 consecutive green frames (~240ms of steady focus)
+                if (consecutiveGreenFramesRef.current >= 2) {
+                  const now = Date.now();
+                  if (now - lastAutoTriggerTimeRef.current >= 1200) {
+                    lastAutoTriggerTimeRef.current = now;
+                    consecutiveGreenFramesRef.current = 0;
+
+                    if (videoRef.current && videoRef.current.videoWidth > 0) {
+                      playBeep();
+                      if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+
+                      const video = videoRef.current;
+                      const canvas = document.createElement('canvas');
+                      canvas.width = video.videoWidth;
+                      canvas.height = video.videoHeight;
+                      const ctx = canvas.getContext('2d');
+                      if (ctx) {
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        await handleProcessImage(canvas, currentTargetExam || undefined);
+                      }
+                    }
+                  }
+                }
+              } else {
+                consecutiveGreenFramesRef.current = 0;
+              }
             }
           } catch (e) {
             // ignore scan frame glitch
@@ -281,8 +346,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         const rawData = qrInfo.rawData;
         setLastDetectedQR(rawData);
 
-        // Match against existing exams (can scan ANY exam created in the system)
-        const freshList = storageService.getExams();
+        // Match against ALL created exams in system
+        const freshList = storageService.getAllExamsRaw();
         const examId = qrInfo.examId;
         const examTitle = qrInfo.title;
 
@@ -294,38 +359,15 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
         if (matched) {
           setActiveExam(matched);
-          setQrDetectedNotice(`ตรวจพบวิชา: ${matched.title} (${matched.questionCount} ข้อ)`);
-        }
-
-        // If Auto-Scan is enabled, trigger automatic capture & evaluation without pressing any button
-        if (autoScanEnabled && !isProcessingRef.current && !scanOutput) {
-          const now = Date.now();
-          // 900ms cooldown between auto-attempts to prevent rapid re-triggering
-          if (now - lastAutoTriggerTimeRef.current >= 900) {
-            lastAutoTriggerTimeRef.current = now;
-
-            if (videoRef.current && videoRef.current.videoWidth > 0) {
-              playBeep();
-              if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
-
-              // Capture current video frame into canvas
-              const video = videoRef.current;
-              const canvas = document.createElement('canvas');
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                await handleProcessImage(canvas, matched || activeExam || undefined);
-              }
-            }
-          }
+          matchedExamRef.current = matched;
+          const gradeText = matched.gradeLevel || qrInfo.gradeLevel || '';
+          setQrDetectedNotice(`ตรวจพบวิชา: ${matched.title}${gradeText ? ` (${gradeText})` : ''} (${matched.questionCount} ข้อ)`);
         }
       } catch (e) {
         console.warn('QR parse notice', e);
       }
     },
-    [autoScanEnabled, activeExam, scanOutput]
+    []
   );
 
   /**
@@ -342,11 +384,11 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       isScanningRef.current = true;
 
       // 1. If activeExam is not selected yet, scan image for embedded QR code first!
-      let targetExam = overrideExam || activeExam;
+      let targetExam = overrideExam || activeExam || matchedExamRef.current;
       if (!targetExam) {
         const qrInfo = omrScannerEngine.readQRCode(imageSource);
         if (qrInfo) {
-          const freshExams = storageService.getExams();
+          const freshExams = storageService.getAllExamsRaw();
           const matched = freshExams.find(
             (e) =>
               (qrInfo.examId && (e.id === qrInfo.examId || e.id.toLowerCase() === qrInfo.examId.toLowerCase())) ||
@@ -355,16 +397,18 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           if (matched) {
             targetExam = matched;
             setActiveExam(matched);
+            matchedExamRef.current = matched;
           }
         }
       }
 
       // If still no exam matched, default to the most recent exam or prompt user
       if (!targetExam) {
-        const freshExams = storageService.getExams();
+        const freshExams = storageService.getAllExamsRaw();
         if (freshExams.length > 0) {
           targetExam = freshExams[0];
           setActiveExam(targetExam);
+          matchedExamRef.current = targetExam;
         } else {
           error('ไม่พบชุดข้อสอบในระบบ', 'กรุณาสร้างชุดข้อสอบอย่างน้อย 1 ชุดก่อนทำการตรวจ');
           return;
@@ -501,6 +545,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     setNotes('');
     setLastDetectedQR(null);
     setQrDetectedNotice(null);
+    setFrameQuality(null);
+    consecutiveGreenFramesRef.current = 0;
     isProcessingRef.current = false;
     isScanningRef.current = false;
     lastAutoTriggerTimeRef.current = Date.now() + 1000; // 1s grace period to position next sheet
@@ -709,59 +755,199 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           </div>
         )}
 
-        {/* Heads-Up Display (HUD): 4 Corner Brackets & QR Target Box */}
+        {/* Heads-Up Display (HUD): 4 Corner Brackets & QR Target Box with Dynamic Green/Red State */}
         {cameraActive && !scanOutput && !cameraError && (
-          <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-4 sm:p-8">
-            {/* Top QR Target Reticle (Right upper quadrant where QR code lives) */}
-            <div className="flex justify-end pt-2 pr-2">
-              <div className="flex flex-col items-center gap-1 bg-black/45 backdrop-blur-xs p-1.5 rounded-xl border border-indigo-400/50 shadow-lg">
-                <div className="w-16 h-16 border-2 border-dashed border-indigo-400 rounded-lg flex items-center justify-center animate-pulse">
-                  <QrCode className="w-8 h-8 text-indigo-300 opacity-80" />
+          <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-3 sm:p-6">
+            {/* Top Bar: Subject Badge + QR Target Reticle */}
+            <div className="flex items-center justify-between pt-1 px-1">
+              {/* Left: Identified Subject & Grade Level Status Badge */}
+              <div className="max-w-[70%]">
+                {activeExam ? (
+                  <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-2xl shadow-lg flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0 animate-ping" />
+                    <div className="min-w-0">
+                      <div className="font-heading font-black text-xs text-white truncate">
+                        {activeExam.title}
+                      </div>
+                      <div className="text-[10px] text-emerald-300 font-semibold flex items-center gap-1.5 truncate">
+                        <span>{activeExam.gradeLevel || 'ทั่วไป'}</span>
+                        <span>•</span>
+                        <span>{activeExam.questionCount} ข้อ</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-2xl shadow-lg flex items-center gap-2">
+                    <QrCode className="w-4 h-4 text-indigo-400 shrink-0 animate-pulse" />
+                    <div className="text-[11px] text-slate-300 font-medium">
+                      สแกนตรวจได้ทุกวิชา (ส่อง QR บนกระดาษ)
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right: QR Code Targeting Reticle */}
+              <div className="flex flex-col items-center gap-1 bg-black/50 backdrop-blur-xs p-1.5 rounded-xl border border-indigo-400/50 shadow-lg shrink-0">
+                <div
+                  className={`w-14 h-14 border-2 rounded-lg flex items-center justify-center ${
+                    lastDetectedQR
+                      ? 'border-emerald-400 bg-emerald-500/10'
+                      : 'border-dashed border-indigo-400 animate-pulse'
+                  }`}
+                >
+                  <QrCode
+                    className={`w-7 h-7 ${
+                      lastDetectedQR ? 'text-emerald-400' : 'text-indigo-300 opacity-80'
+                    }`}
+                  />
                 </div>
-                <span className="text-[9px] font-bold text-indigo-200 uppercase tracking-tight">
-                  กรอบเล็ง QR Code
+                <span
+                  className={`text-[8px] font-bold uppercase tracking-tight ${
+                    lastDetectedQR ? 'text-emerald-300' : 'text-indigo-200'
+                  }`}
+                >
+                  {lastDetectedQR ? 'พบ QR โค้ด' : 'เล็ง QR มุมขวา'}
                 </span>
               </div>
             </div>
 
-            {/* 4 Corner Registration Fiducial Markers Overlay */}
-            <div className="absolute inset-6 sm:inset-12 border-2 border-emerald-500/20 rounded-2xl pointer-events-none">
+            {/* 4 Corner Registration Fiducial Markers Overlay (Reactive Red vs Green) */}
+            <div
+              className={`absolute inset-6 sm:inset-10 border-2 rounded-3xl pointer-events-none transition-colors duration-200 ${
+                frameQuality?.statusColor === 'green'
+                  ? 'border-emerald-500/40 shadow-[0_0_24px_rgba(16,185,129,0.35)]'
+                  : 'border-rose-500/40 shadow-[0_0_24px_rgba(244,63,94,0.35)]'
+              }`}
+            >
               {/* Corner 1: Top-Left */}
-              <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg shadow-sm" />
+              <div
+                className={`absolute -top-1.5 -left-1.5 w-9 h-9 border-t-4 border-l-4 rounded-tl-xl transition-all duration-200 ${
+                  frameQuality?.statusColor === 'green'
+                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
+                    : frameQuality?.detectedCorners.topLeft
+                    ? 'border-emerald-500'
+                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                }`}
+              />
               {/* Corner 2: Top-Right */}
-              <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg shadow-sm" />
+              <div
+                className={`absolute -top-1.5 -right-1.5 w-9 h-9 border-t-4 border-r-4 rounded-tr-xl transition-all duration-200 ${
+                  frameQuality?.statusColor === 'green'
+                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
+                    : frameQuality?.detectedCorners.topRight
+                    ? 'border-emerald-500'
+                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                }`}
+              />
               {/* Corner 3: Bottom-Left */}
-              <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg shadow-sm" />
+              <div
+                className={`absolute -bottom-1.5 -left-1.5 w-9 h-9 border-b-4 border-l-4 rounded-bl-xl transition-all duration-200 ${
+                  frameQuality?.statusColor === 'green'
+                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
+                    : frameQuality?.detectedCorners.bottomLeft
+                    ? 'border-emerald-500'
+                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                }`}
+              />
               {/* Corner 4: Bottom-Right */}
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-lg shadow-sm" />
+              <div
+                className={`absolute -bottom-1.5 -right-1.5 w-9 h-9 border-b-4 border-r-4 rounded-br-xl transition-all duration-200 ${
+                  frameQuality?.statusColor === 'green'
+                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
+                    : frameQuality?.detectedCorners.bottomRight
+                    ? 'border-emerald-500'
+                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                }`}
+              />
             </div>
 
-            {/* Animated Laser Scanning Beam */}
+            {/* Animated Laser Scanning Beam (Green when good, Red when not ready) */}
             <div className="absolute inset-x-8 top-16 bottom-24 pointer-events-none overflow-hidden">
-              <div className="w-full h-1 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399] animate-[bounce_3s_infinite]" />
+              <div
+                className={`w-full h-1 bg-gradient-to-r from-transparent via-current to-transparent animate-[bounce_2.5s_infinite] ${
+                  frameQuality?.statusColor === 'green'
+                    ? 'text-emerald-400 shadow-[0_0_16px_#34d399]'
+                    : 'text-rose-500 shadow-[0_0_16px_#f43f5e]'
+                }`}
+              />
             </div>
 
-            {/* Real-time Guidance Banner */}
-            <div className="flex justify-center pb-2 z-20">
-              <div className="bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-700/80 text-white text-xs font-medium flex items-center gap-2 shadow-lg max-w-sm sm:max-w-md text-center">
-                {qrDetectedNotice ? (
+            {/* Real-time Guidance Banner: Red (Warning/Missing/Blur) vs Green (Ready/Complete) */}
+            <div className="flex flex-col items-center gap-1.5 pb-2 z-20 px-2">
+              {/* Corner status indicator dots: TL, TR, BL, BR */}
+              <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-full border border-slate-800 text-[10px]">
+                <span className="text-slate-400 font-semibold mr-0.5">สถานะมุมกระดาษ:</span>
+                <span
+                  className={`flex items-center gap-0.5 font-bold ${
+                    frameQuality?.detectedCorners.topLeft ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {frameQuality?.detectedCorners.topLeft ? '✓' : '✗'} บนซ้าย
+                </span>
+                <span className="text-slate-600">•</span>
+                <span
+                  className={`flex items-center gap-0.5 font-bold ${
+                    frameQuality?.detectedCorners.topRight ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {frameQuality?.detectedCorners.topRight ? '✓' : '✗'} บนขวา
+                </span>
+                <span className="text-slate-600">•</span>
+                <span
+                  className={`flex items-center gap-0.5 font-bold ${
+                    frameQuality?.detectedCorners.bottomLeft ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {frameQuality?.detectedCorners.bottomLeft ? '✓' : '✗'} ล่างซ้าย
+                </span>
+                <span className="text-slate-600">•</span>
+                <span
+                  className={`flex items-center gap-0.5 font-bold ${
+                    frameQuality?.detectedCorners.bottomRight ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {frameQuality?.detectedCorners.bottomRight ? '✓' : '✗'} ล่างขวา
+                </span>
+              </div>
+
+              {/* Main Guidance Banner */}
+              <div
+                className={`backdrop-blur-md px-4 py-2 rounded-2xl border text-xs font-medium flex items-center gap-2.5 shadow-xl max-w-sm sm:max-w-md text-left transition-all ${
+                  frameQuality?.statusColor === 'green'
+                    ? 'bg-emerald-950/95 border-emerald-500/80 text-emerald-100 shadow-emerald-950/50'
+                    : 'bg-rose-950/95 border-rose-500/80 text-rose-100 shadow-rose-950/50'
+                }`}
+              >
+                {frameQuality?.statusColor === 'green' ? (
                   <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span className="text-emerald-300 font-bold truncate">
-                      {qrDetectedNotice}
-                    </span>
-                  </>
-                ) : autoScanEnabled ? (
-                  <>
-                    <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
-                    <span className="text-emerald-200">
-                      ส่องกล้องไปที่กระดาษคำตอบ ระบบจะตรวจอัตโนมัติทันที
-                    </span>
+                    <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4 text-emerald-300 animate-pulse" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-emerald-300 flex items-center gap-1.5 text-xs">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-ping" />
+                        <span>{frameQuality.statusTitle}</span>
+                      </div>
+                      <div className="text-[11px] text-emerald-200/90 truncate">
+                        {frameQuality.statusMessage}
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <>
-                    <Camera className="w-4 h-4 text-indigo-400 shrink-0" />
-                    <span>วางกระดาษให้ตรงกรอบ แล้วกดปุ่มถ่ายเพื่อตรวจ</span>
+                    <div className="w-8 h-8 rounded-full bg-rose-500/20 border border-rose-400 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="w-4 h-4 text-rose-300 animate-bounce" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-rose-300 flex items-center gap-1.5 text-xs">
+                        <span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />
+                        <span>{frameQuality?.statusTitle || 'กระดาษคำตอบยังไม่ชัด'}</span>
+                      </div>
+                      <div className="text-[11px] text-rose-200/90">
+                        {frameQuality?.statusMessage ||
+                          'กรุณาจัดให้เห็นมุมดำครบทั้ง 4 มุม และถือกล้องให้นิ่ง'}
+                      </div>
+                    </div>
                   </>
                 )}
               </div>
@@ -804,8 +990,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                   <h3 className="font-heading font-black text-xl text-white mt-1">
                     {activeExam?.title || 'กระดาษคำตอบ'}
                   </h3>
-                  <p className="text-xs text-slate-400">
-                    ตอบถูก {scanOutput.score} จาก {scanOutput.total} ข้อ ({scanOutput.pct}%)
+                  {activeExam?.gradeLevel && (
+                    <span className="inline-block text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-md mt-1">
+                      {activeExam.gradeLevel}
+                    </span>
+                  )}
+                  <p className="text-xs text-slate-400 mt-1">
+                    ตอบถูก <strong className="text-white font-bold">{scanOutput.score}</strong> จาก{' '}
+                    {scanOutput.total} ข้อ ({scanOutput.pct}%)
                   </p>
                 </div>
 

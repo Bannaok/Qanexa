@@ -3,10 +3,36 @@ import html2canvas from 'html2canvas';
 import QRCode from 'qrcode';
 import { Exam } from '../types';
 
+/**
+ * Fast deterministic hash of the answer key and question count.
+ * Changes whenever any answer key is altered, guaranteeing that
+ * the generated QR code and answer sheet version immediately update.
+ */
+export function computeExamAnswerKeyHash(
+  answerKey: Record<number, number> | undefined,
+  questionCount: number
+): string {
+  if (!answerKey) return 'k0';
+  let keyString = '';
+  for (let i = 1; i <= questionCount; i++) {
+    keyString += `${i}:${answerKey[i] ?? -1};`;
+  }
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < keyString.length; i++) {
+    hash ^= keyString.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return 'k' + hash.toString(36);
+}
+
 export const getExamQRPayload = (exam: Exam): string => {
-  // Ultra-compact payload for minimum QR matrix density (fewest dots = fastest scan from far away)
-  // Format: EXAM:<id>|<questionCount>
-  return `EXAM:${exam.id}|${exam.questionCount}`;
+  // Enhanced payload containing subject, grade level, and answer key checksum
+  // Changes every time answers or questions are modified
+  const keyHash = computeExamAnswerKeyHash(exam.answerKey, exam.questionCount);
+  const titleSafe = encodeURIComponent(exam.title || '').slice(0, 40);
+  const gradeSafe = encodeURIComponent(exam.gradeLevel || '').slice(0, 30);
+  const updateTs = exam.updatedAt ? new Date(exam.updatedAt).getTime() : Date.now();
+  return `EXAM:v2|${exam.id}|${exam.questionCount}|${keyHash}|${titleSafe}|${gradeSafe}|${updateTs}`;
 };
 
 export const pdfGenerator = {
