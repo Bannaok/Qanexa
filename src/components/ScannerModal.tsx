@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Exam, ScanResult, QuestionAnswer } from '../types';
-import { omrScannerEngine } from '../services/omrScannerEngine';
+import { omrScannerEngine, ParsedQRExam } from '../services/omrScannerEngine';
 import { storageService } from '../services/storageService';
 import { useAuth } from '../services/authContext';
 import { useToast } from '../services/toastContext';
@@ -87,7 +87,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   // Sensitivity (Default 0.26 for optimal pencil & pen cross-mark detection)
   const [sensitivity, setSensitivity] = useState(0.26);
   const [showSensitivitySlider, setShowSensitivitySlider] = useState(false);
-  const [autoScanEnabled, setAutoScanEnabled] = useState(false);
+  // Auto-scan is enabled by default so the user does NOT need to press shutter button
+  const [autoScanEnabled, setAutoScanEnabled] = useState(true);
 
   // State to toggle detailed question-by-question answer key breakdown
   const [showAnswersList, setShowAnswersList] = useState(true);
@@ -97,6 +98,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const qrLoopRef = useRef<number | null>(null);
   const isScanningRef = useRef(false);
+  const isProcessingRef = useRef(false);
+  const lastAutoTriggerTimeRef = useRef(0);
 
   // Load fresh exams list
   useEffect(() => {
@@ -178,8 +181,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: { ideal: facingMode },
-          width: { ideal: 1920, min: 1080 },
-          height: { ideal: 1080, min: 720 },
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
         },
         audio: false,
       };
@@ -239,27 +242,28 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
    */
   const startQRScanningLoop = () => {
     let lastScanTime = 0;
-    const qrCanvas = document.createElement('canvas');
-    const qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true });
 
-    const scanFrame = (timestamp: number) => {
-      if (!videoRef.current || !streamRef.current || isScanningRef.current) {
+    const scanFrame = async (timestamp: number) => {
+      if (!videoRef.current || !streamRef.current || isScanningRef.current || isProcessingRef.current) {
         qrLoopRef.current = requestAnimationFrame(scanFrame);
         return;
       }
 
-      // Check once every 120ms for instant real-time detection & responsiveness
-      if (timestamp - lastScanTime >= 120 && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+      // Check once every 140ms for lightning-fast responsiveness with minimal CPU usage
+      if (timestamp - lastScanTime >= 140 && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
         lastScanTime = timestamp;
         const vid = videoRef.current;
         const w = vid.videoWidth;
         const h = vid.videoHeight;
 
-        if (w > 0 && h > 0 && qrCtx) {
-          // Sample using multi-pass qr reader
-          const qrInfo = omrScannerEngine.readQRCode(vid);
-          if (qrInfo && qrInfo.rawData && qrInfo.rawData !== lastDetectedQR) {
-            handleDetectedQRCode(qrInfo.rawData);
+        if (w > 0 && h > 0) {
+          try {
+            const qrInfo = await omrScannerEngine.readQRCodeFast(vid);
+            if (qrInfo && qrInfo.rawData) {
+              handleDetectedQRCode(qrInfo);
+            }
+          } catch (e) {
+            // ignore scan frame glitch
           }
         }
       }
@@ -272,55 +276,81 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
   // Handle detected QR payload
   const handleDetectedQRCode = useCallback(
-    (rawData: string) => {
+    async (qrInfo: ParsedQRExam) => {
       try {
+        const rawData = qrInfo.rawData;
         setLastDetectedQR(rawData);
-        let examId = '';
-        let examTitle = '';
 
-        try {
-          const parsed = JSON.parse(rawData);
-          examId = parsed.id || '';
-          examTitle = parsed.title || '';
-        } catch {
-          examId = rawData;
-        }
-
-        // Match against existing exams
+        // Match against existing exams (can scan ANY exam created in the system)
         const freshList = storageService.getExams();
+        const examId = qrInfo.examId;
+        const examTitle = qrInfo.title;
+
         const matched = freshList.find(
-          (e) => (examId && e.id === examId) || (examTitle && e.title.trim() === examTitle.trim())
+          (e) =>
+            (examId && (e.id === examId || e.id.toLowerCase() === examId.toLowerCase())) ||
+            (examTitle && e.title.trim().toLowerCase() === examTitle.trim().toLowerCase())
         );
 
         if (matched) {
           setActiveExam(matched);
-          setQrDetectedNotice(`วิชา: ${matched.title} (${matched.questionCount} ข้อ)`);
-          playBeep();
-          if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+          setQrDetectedNotice(`ตรวจพบวิชา: ${matched.title} (${matched.questionCount} ข้อ)`);
+        }
+
+        // If Auto-Scan is enabled, trigger automatic capture & evaluation without pressing any button
+        if (autoScanEnabled && !isProcessingRef.current && !scanOutput) {
+          const now = Date.now();
+          // 900ms cooldown between auto-attempts to prevent rapid re-triggering
+          if (now - lastAutoTriggerTimeRef.current >= 900) {
+            lastAutoTriggerTimeRef.current = now;
+
+            if (videoRef.current && videoRef.current.videoWidth > 0) {
+              playBeep();
+              if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+
+              // Capture current video frame into canvas
+              const video = videoRef.current;
+              const canvas = document.createElement('canvas');
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                await handleProcessImage(canvas, matched || activeExam || undefined);
+              }
+            }
+          }
         }
       } catch (e) {
         console.warn('QR parse notice', e);
       }
     },
-    [examsList]
+    [autoScanEnabled, activeExam, scanOutput]
   );
 
   /**
    * Process and Score the OMR Sheet
    */
-  const handleProcessImage = async (imageSource: HTMLImageElement | HTMLCanvasElement) => {
+  const handleProcessImage = async (
+    imageSource: HTMLImageElement | HTMLCanvasElement,
+    overrideExam?: Exam
+  ) => {
+    if (isProcessingRef.current) return;
     try {
       setIsProcessing(true);
+      isProcessingRef.current = true;
       isScanningRef.current = true;
 
       // 1. If activeExam is not selected yet, scan image for embedded QR code first!
-      let targetExam = activeExam;
+      let targetExam = overrideExam || activeExam;
       if (!targetExam) {
         const qrInfo = omrScannerEngine.readQRCode(imageSource);
         if (qrInfo) {
           const freshExams = storageService.getExams();
           const matched = freshExams.find(
-            (e) => (qrInfo.examId && e.id === qrInfo.examId) || (qrInfo.title && e.title === qrInfo.title)
+            (e) =>
+              (qrInfo.examId && (e.id === qrInfo.examId || e.id.toLowerCase() === qrInfo.examId.toLowerCase())) ||
+              (qrInfo.title && e.title.trim().toLowerCase() === qrInfo.title.trim().toLowerCase())
           );
           if (matched) {
             targetExam = matched;
@@ -337,8 +367,6 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           setActiveExam(targetExam);
         } else {
           error('ไม่พบชุดข้อสอบในระบบ', 'กรุณาสร้างชุดข้อสอบอย่างน้อย 1 ชุดก่อนทำการตรวจ');
-          setIsProcessing(false);
-          isScanningRef.current = false;
           return;
         }
       }
@@ -349,7 +377,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       });
 
       if (!result.success) {
-        error('ตรวจกระดาษคำตอบไม่สำเร็จ', result.errorMessage || 'กรุณาลองจัดมุมกล้องใหม่ให้เห็นจุดมาร์กมุมครบทั้ง 4 มุม');
+        // If in auto-scan mode and corners were not fully in view yet, give clear guidance without stopping
+        setQrDetectedNotice('กำลังจัดมุมกระดาษ... ให้เห็นจุดมาร์กมุมดำครบทั้ง 4 มุม');
         return;
       }
 
@@ -385,6 +414,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       error('เกิดข้อผิดพลาดในการประมวลผลภาพ', err?.message || 'กรุณาลองใหม่อีกครั้ง');
     } finally {
       setIsProcessing(false);
+      isProcessingRef.current = false;
       isScanningRef.current = false;
     }
   };
@@ -470,6 +500,10 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     setStudentId('');
     setNotes('');
     setLastDetectedQR(null);
+    setQrDetectedNotice(null);
+    isProcessingRef.current = false;
+    isScanningRef.current = false;
+    lastAutoTriggerTimeRef.current = Date.now() + 1000; // 1s grace period to position next sheet
     if (!cameraActive) {
       startCamera();
     }
@@ -575,7 +609,39 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         </div>
 
         {/* Right: Camera Action Buttons */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          {/* Auto Scan Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = !autoScanEnabled;
+              setAutoScanEnabled(next);
+              if (next) {
+                success('เปิดโหมดสแกนอัตโนมัติ', 'จ่อกล้องแล้วระบบจะตรวจทันทีโดยไม่ต้องกดปุ่ม');
+              } else {
+                info('เปิดโหมดถ่ายเอง', 'กดปุ่มชัตเตอร์ด้านล่างเพื่อสั่งตรวจ');
+              }
+            }}
+            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+              autoScanEnabled
+                ? 'bg-emerald-600/90 border-emerald-400 text-white shadow-xs'
+                : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+            title={autoScanEnabled ? 'คลิกเพื่อสลับเป็นโหมดถ่ายเอง' : 'คลิกเพื่อเปิดโหมดสแกนอัตโนมัติ'}
+          >
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                autoScanEnabled ? 'bg-emerald-300 animate-pulse' : 'bg-slate-500'
+              }`}
+            />
+            <span className="hidden sm:inline">
+              {autoScanEnabled ? 'สแกนอัตโนมัติ' : 'ถ่ายเอง'}
+            </span>
+            <span className="sm:hidden">
+              {autoScanEnabled ? 'ออโต้' : 'ถ่ายเอง'}
+            </span>
+          </button>
+
           {/* Torch Toggle */}
           {hasTorch && (
             <button
@@ -677,18 +743,25 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
             {/* Real-time Guidance Banner */}
             <div className="flex justify-center pb-2 z-20">
-              <div className="bg-slate-900/85 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-700/80 text-white text-xs font-medium flex items-center gap-2 shadow-lg">
+              <div className="bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-700/80 text-white text-xs font-medium flex items-center gap-2 shadow-lg max-w-sm sm:max-w-md text-center">
                 {qrDetectedNotice ? (
                   <>
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span className="text-emerald-300 font-bold truncate max-w-xs">
+                    <span className="text-emerald-300 font-bold truncate">
                       {qrDetectedNotice}
+                    </span>
+                  </>
+                ) : autoScanEnabled ? (
+                  <>
+                    <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
+                    <span className="text-emerald-200">
+                      ส่องกล้องไปที่กระดาษคำตอบ ระบบจะตรวจอัตโนมัติทันที
                     </span>
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
-                    <span>วางกระดาษให้ตรงกรอบ • รองรับกากบาททั้งดินสอและปากกา</span>
+                    <Camera className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <span>วางกระดาษให้ตรงกรอบ แล้วกดปุ่มถ่ายเพื่อตรวจ</span>
                   </>
                 )}
               </div>
@@ -911,8 +984,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
             >
               <Camera className="w-7 h-7 sm:w-8 sm:h-8" />
             </button>
-            <span className="text-[10px] text-slate-400 mt-1 font-semibold">
-              กดสแกนตรวจ
+            <span className="text-[10px] text-slate-300 mt-1 font-semibold text-center">
+              {autoScanEnabled ? 'ตรวจอัตโนมัติ (แตะเพื่อถ่ายเอง)' : 'กดสแกนตรวจ'}
             </span>
           </div>
 

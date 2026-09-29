@@ -35,105 +35,166 @@ interface CornerQuad {
   bottomLeft: Point;
 }
 
+export interface ParsedQRExam {
+  rawData: string;
+  examId?: string;
+  title?: string;
+  questionCount?: number;
+}
+
+export function parseExamQRCodeData(codeData: string): ParsedQRExam {
+  if (!codeData) return { rawData: '' };
+  const trimmed = codeData.trim();
+
+  // 1. Format: EXAM:<id>|<q> or EXAM:<id>
+  if (trimmed.startsWith('EXAM:')) {
+    const body = trimmed.substring(5).trim();
+    const parts = body.split('|');
+    const id = parts[0]?.trim();
+    const qCount = parts[1] ? parseInt(parts[1], 10) : undefined;
+    return {
+      rawData: trimmed,
+      examId: id,
+      questionCount: isNaN(qCount as number) ? undefined : qCount,
+    };
+  }
+
+  // 2. Format: JSON
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return {
+        rawData: trimmed,
+        examId: parsed.id || parsed.examId,
+        title: parsed.title,
+        questionCount: parsed.q || parsed.questionCount,
+      };
+    } catch {
+      // ignore
+    }
+  }
+
+  // 3. Fallback: raw ID string
+  return {
+    rawData: trimmed,
+    examId: trimmed,
+  };
+}
+
+// Reusable offscreen canvas for zero-allocation fast frame scanning
+let sharedFastCanvas: HTMLCanvasElement | null = null;
+let sharedFastCtx: CanvasRenderingContext2D | null = null;
+
+function getSharedFastCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  if (typeof document === 'undefined') return null;
+  if (!sharedFastCanvas) {
+    sharedFastCanvas = document.createElement('canvas');
+    sharedFastCtx = sharedFastCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (!sharedFastCtx) return null;
+  if (sharedFastCanvas.width !== w || sharedFastCanvas.height !== h) {
+    sharedFastCanvas.width = w;
+    sharedFastCanvas.height = h;
+  }
+  return { canvas: sharedFastCanvas, ctx: sharedFastCtx };
+}
+
+// Cached native BarcodeDetector if supported by the browser
+let nativeBarcodeDetector: any = null;
+if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+  try {
+    nativeBarcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+  } catch {
+    nativeBarcodeDetector = null;
+  }
+}
+
 export const omrScannerEngine = {
+  /**
+   * High-speed, zero-lag QR Code detector with native hardware acceleration (BarcodeDetector)
+   * and optimized jsQR fallback. Designed for 60fps real-time camera viewfinder.
+   */
+  async readQRCodeFast(
+    imageSource: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement
+  ): Promise<ParsedQRExam | null> {
+    try {
+      // 1. Try native GPU-accelerated BarcodeDetector (Chrome Android/Desktop, Safari iOS 17+)
+      if (nativeBarcodeDetector) {
+        try {
+          const barcodes = await nativeBarcodeDetector.detect(imageSource);
+          if (barcodes && barcodes.length > 0 && barcodes[0]?.rawValue) {
+            return parseExamQRCodeData(barcodes[0].rawValue);
+          }
+        } catch {
+          // fallback to jsQR
+        }
+      }
+
+      // 2. Fallback to optimized jsQR using reused offscreen canvas
+      return this.readQRCode(imageSource);
+    } catch (e) {
+      return null;
+    }
+  },
+
   /**
    * Scans an image/canvas for any embedded Exam QR code using jsQR.
    * Features:
-   *  - Multi-scale search (full, half, and top-half crop where exam QR is located)
-   *  - Supports high-resolution and low-resolution frames effortlessly
-   *  - Binarization & contrast boost for dim/shadowy paper environments
+   *  - Reusable memory buffer (prevents GC pauses and camera lag)
+   *  - Multi-scale search (fast downsampled full frame + top quadrant)
    */
   readQRCode(
     imageSource: HTMLImageElement | HTMLCanvasElement | ImageData | HTMLVideoElement
-  ): { rawData: string; examId?: string; title?: string } | null {
+  ): ParsedQRExam | null {
     try {
-      let canvas: HTMLCanvasElement;
-      let ctx: CanvasRenderingContext2D | null;
+      let srcW = 0;
+      let srcH = 0;
 
       if (imageSource instanceof ImageData) {
-        canvas = document.createElement('canvas');
-        canvas.width = imageSource.width;
-        canvas.height = imageSource.height;
-        ctx = canvas.getContext('2d');
-        if (!ctx) return null;
+        srcW = imageSource.width;
+        srcH = imageSource.height;
+      } else if (imageSource instanceof HTMLVideoElement) {
+        srcW = imageSource.videoWidth;
+        srcH = imageSource.videoHeight;
+      } else {
+        srcW = (imageSource as any).width || 0;
+        srcH = (imageSource as any).height || 0;
+      }
+
+      if (!srcW || !srcH) return null;
+
+      // Downsample to optimal resolution for jsQR (around 480-540px width is ideal)
+      const targetW = Math.min(540, srcW);
+      const targetH = Math.round((srcH / srcW) * targetW);
+
+      const fast = getSharedFastCanvas(targetW, targetH);
+      if (!fast) return null;
+
+      const { ctx } = fast;
+
+      if (imageSource instanceof ImageData) {
         ctx.putImageData(imageSource, 0, 0);
       } else {
-        const w = (imageSource as HTMLVideoElement).videoWidth || imageSource.width;
-        const h = (imageSource as HTMLVideoElement).videoHeight || imageSource.height;
-        if (!w || !h) return null;
-
-        canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        ctx = canvas.getContext('2d');
-        if (!ctx) return null;
-        ctx.drawImage(imageSource as CanvasImageSource, 0, 0, w, h);
+        ctx.drawImage(imageSource as CanvasImageSource, 0, 0, targetW, targetH);
       }
 
-      const w = canvas.width;
-      const h = canvas.height;
-
-      const parseResult = (codeData: string) => {
-        try {
-          const parsed = JSON.parse(codeData);
-          return {
-            rawData: codeData,
-            examId: parsed.id || parsed.examId,
-            title: parsed.title,
-          };
-        } catch {
-          return {
-            rawData: codeData,
-            examId: codeData,
-          };
-        }
-      };
-
-      // Pass 1: Try reading directly from top-right quadrant or top half where QR lives (super fast & reliable)
-      const topHalfCanvas = document.createElement('canvas');
-      const topHalfW = Math.min(640, w);
-      const topHalfH = Math.min(640, Math.round(h * 0.45));
-      topHalfCanvas.width = topHalfW;
-      topHalfCanvas.height = topHalfH;
-      const topCtx = topHalfCanvas.getContext('2d');
-      if (topCtx) {
-        topCtx.drawImage(canvas, 0, 0, w, h * 0.45, 0, 0, topHalfW, topHalfH);
-        const topImgData = topCtx.getImageData(0, 0, topHalfW, topHalfH);
-        const code = jsQR(topImgData.data, topHalfW, topHalfH, {
-          inversionAttempts: 'attemptBoth',
-        });
-        if (code && code.data) {
-          return parseResult(code.data);
-        }
+      // Pass 1: Scan full frame
+      const fullImgData = ctx.getImageData(0, 0, targetW, targetH);
+      const code1 = jsQR(fullImgData.data, targetW, targetH, {
+        inversionAttempts: 'attemptBoth',
+      });
+      if (code1 && code1.data) {
+        return parseExamQRCodeData(code1.data);
       }
 
-      // Pass 2: Downsampled full-frame (optimal resolution ~600px width for jsQR)
-      const targetW = Math.min(720, w);
-      const targetH = Math.round((h / w) * targetW);
-      const scaledCanvas = document.createElement('canvas');
-      scaledCanvas.width = targetW;
-      scaledCanvas.height = targetH;
-      const scaledCtx = scaledCanvas.getContext('2d');
-      if (scaledCtx) {
-        scaledCtx.drawImage(canvas, 0, 0, targetW, targetH);
-        const scaledImgData = scaledCtx.getImageData(0, 0, targetW, targetH);
-        const code = jsQR(scaledImgData.data, targetW, targetH, {
-          inversionAttempts: 'attemptBoth',
-        });
-        if (code && code.data) {
-          return parseResult(code.data);
-        }
-      }
-
-      // Pass 3: Original raw dimensions fallback if not too enormous
-      if (w <= 1280 && h <= 1280) {
-        const fullImgData = ctx.getImageData(0, 0, w, h);
-        const code = jsQR(fullImgData.data, w, h, {
-          inversionAttempts: 'attemptBoth',
-        });
-        if (code && code.data) {
-          return parseResult(code.data);
-        }
+      // Pass 2: Focus on top-half (where exam QR code is placed)
+      const topH = Math.round(targetH * 0.5);
+      const topImgData = ctx.getImageData(0, 0, targetW, topH);
+      const code2 = jsQR(topImgData.data, targetW, topH, {
+        inversionAttempts: 'attemptBoth',
+      });
+      if (code2 && code2.data) {
+        return parseExamQRCodeData(code2.data);
       }
 
       return null;

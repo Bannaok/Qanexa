@@ -4,16 +4,9 @@ import QRCode from 'qrcode';
 import { Exam } from '../types';
 
 export const getExamQRPayload = (exam: Exam): string => {
-  return JSON.stringify({
-    app: 'OMR-SCAN',
-    id: exam.id,
-    title: exam.title,
-    grade: exam.gradeLevel || '',
-    creator: exam.createdBy || '',
-    q: exam.questionCount,
-    c: exam.choiceCount,
-    keyLen: Object.keys(exam.answerKey || {}).length,
-  });
+  // Ultra-compact payload for minimum QR matrix density (fewest dots = fastest scan from far away)
+  // Format: EXAM:<id>|<questionCount>
+  return `EXAM:${exam.id}|${exam.questionCount}`;
 };
 
 export const pdfGenerator = {
@@ -113,8 +106,8 @@ export const pdfGenerator = {
       const qrDataUrl =
         precomputedQR ||
         (await QRCode.toDataURL(getExamQRPayload(exam), {
-          margin: 1,
-          width: 200,
+          margin: 3,
+          width: 360,
           errorCorrectionLevel: 'M',
         }));
       qrImg = new Image();
@@ -184,19 +177,25 @@ export const pdfGenerator = {
       ctx.fillText('ชื่อ - สกุล: ....................................................................................................................', offsetX + padX + 70, padY + 130);
       ctx.fillText('ชั้น: ....................    เลขที่: ....................    วันที่: ................................................................', offsetX + padX + 70, padY + 175);
 
-      // QR Code (Large & framed for immediate detection)
+      // QR Code (Large & prominent framed for instant mobile detection from distance)
       if (qrImg) {
+        const qrBoxW = 160;
+        const qrBoxH = 175;
+        const qrX = offsetX + halfWidth - padX - 50 - qrBoxW;
+        const qrY = padY + 18;
+
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(offsetX + halfWidth - padX - 50 - 150, padY + 25, 140, 155);
+        ctx.fillRect(qrX, qrY, qrBoxW, qrBoxH);
         ctx.strokeStyle = '#020617';
         ctx.lineWidth = 2.5;
-        ctx.strokeRect(offsetX + halfWidth - padX - 50 - 150, padY + 25, 140, 155);
+        ctx.strokeRect(qrX, qrY, qrBoxW, qrBoxH);
 
-        ctx.drawImage(qrImg, offsetX + halfWidth - padX - 50 - 146, padY + 29, 132, 132);
-        ctx.font = 'bold 12px "Sarabun", monospace';
+        const qrImgSize = qrBoxW - 16;
+        ctx.drawImage(qrImg, qrX + 8, qrY + 8, qrImgSize, qrImgSize);
+        ctx.font = 'bold 13px "Sarabun", monospace';
         ctx.fillStyle = '#0f172a';
         ctx.textAlign = 'center';
-        ctx.fillText('QR รหัสข้อสอบ', offsetX + halfWidth - padX - 50 - 80, padY + 174);
+        ctx.fillText('QR รหัสข้อสอบ', qrX + qrBoxW / 2, qrY + qrBoxH - 10);
         ctx.textAlign = 'left';
       }
 

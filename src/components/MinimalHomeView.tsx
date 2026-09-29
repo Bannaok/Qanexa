@@ -67,7 +67,7 @@ export const MinimalHomeView: React.FC<MinimalHomeViewProps> = ({
                   สแกนคิวอาร์โค้ด
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-emerald-100 text-emerald-800 whitespace-nowrap shrink-0">
-                  OMR Scanner
+                  ตรวจอัตโนมัติทุกวิชา
                 </span>
               </div>
             </div>
