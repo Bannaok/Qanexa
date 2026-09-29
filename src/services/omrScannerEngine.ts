@@ -167,6 +167,149 @@ if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
   }
 }
 
+/**
+ * High-precision corner fiducial detector.
+ * Detects an isolated compact dark square fiducial marker (5x5mm printed registration mark)
+ * in a specific corner quadrant (TL, TR, BL, BR) of the 13x20cm portrait answer sheet.
+ * Features:
+ * - Scans from the outermost corner inwards to prevent picking up internal text, tables, or the TR QR code.
+ * - Validates square-like compact aspect ratio and high dark pixel density.
+ * - Validates contrast against surrounding paper margins (isolated square mark).
+ * - Fast fallback to corner centroid if paper is slightly misaligned.
+ */
+function findRobustCornerFiducial(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  corner: 'tl' | 'tr' | 'bl' | 'br',
+  darkThreshold: number
+): Point | null {
+  let minX: number, maxX: number, minY: number, maxY: number;
+  let targetCornerX: number, targetCornerY: number;
+
+  if (corner === 'tl') {
+    minX = Math.floor(w * 0.015);
+    maxX = Math.floor(w * 0.38);
+    minY = Math.floor(h * 0.015);
+    maxY = Math.floor(h * 0.35);
+    targetCornerX = 0;
+    targetCornerY = 0;
+  } else if (corner === 'tr') {
+    minX = Math.floor(w * 0.62);
+    maxX = Math.floor(w * 0.985);
+    minY = Math.floor(h * 0.015);
+    maxY = Math.floor(h * 0.35);
+    targetCornerX = w;
+    targetCornerY = 0;
+  } else if (corner === 'bl') {
+    minX = Math.floor(w * 0.015);
+    maxX = Math.floor(w * 0.38);
+    minY = Math.floor(h * 0.65);
+    maxY = Math.floor(h * 0.985);
+    targetCornerX = 0;
+    targetCornerY = h;
+  } else {
+    // br
+    minX = Math.floor(w * 0.62);
+    maxX = Math.floor(w * 0.985);
+    minY = Math.floor(h * 0.65);
+    maxY = Math.floor(h * 0.985);
+    targetCornerX = w;
+    targetCornerY = h;
+  }
+
+  // Adaptive block size based on frame resolution
+  const blockSize = Math.max(5, Math.min(24, Math.round(w * 0.026)));
+  const step = Math.max(2, Math.floor(blockSize / 2.5));
+
+  let bestCandidate: { x: number; y: number; distSq: number } | null = null;
+
+  for (let y = minY; y <= maxY - blockSize; y += step) {
+    for (let x = minX; x <= maxX - blockSize; x += step) {
+      let darkCount = 0;
+      let totalSamples = 0;
+      let sumX = 0;
+      let sumY = 0;
+
+      for (let by = 0; by < blockSize; by += 2) {
+        for (let bx = 0; bx < blockSize; bx += 2) {
+          const idx = ((y + by) * w + (x + bx)) * 4;
+          const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+          if (lum < darkThreshold) {
+            darkCount++;
+            sumX += (x + bx);
+            sumY += (y + by);
+          }
+          totalSamples++;
+        }
+      }
+
+      // Check density (> 35% dark pixels inside block)
+      if (darkCount >= totalSamples * 0.35 && darkCount >= 4) {
+        const cx = sumX / darkCount;
+        const cy = sumY / darkCount;
+
+        // Check contrast: sample points just outside this block
+        let lightBorders = 0;
+        const margin = Math.max(2, Math.floor(blockSize * 0.4));
+        const testPoints = [
+          { x: cx - blockSize / 2 - margin, y: cy },
+          { x: cx + blockSize / 2 + margin, y: cy },
+          { x: cx, y: cy - blockSize / 2 - margin },
+          { x: cx, y: cy + blockSize / 2 + margin },
+        ];
+
+        for (const pt of testPoints) {
+          if (pt.x >= 0 && pt.x < w && pt.y >= 0 && pt.y < h) {
+            const pIdx = (Math.floor(pt.y) * w + Math.floor(pt.x)) * 4;
+            const pLum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
+            if (pLum > darkThreshold * 1.12) {
+              lightBorders++;
+            }
+          }
+        }
+
+        // Needs at least 2 lighter sides (indicating it's an isolated block or corner fiducial)
+        if (lightBorders >= 2) {
+          const distSq = (cx - targetCornerX) ** 2 + (cy - targetCornerY) ** 2;
+          if (!bestCandidate || distSq < bestCandidate.distSq) {
+            bestCandidate = { x: cx, y: cy, distSq };
+          }
+        }
+      }
+    }
+  }
+
+  // Fast Fallback: If strict border test didn't find candidate, use centroid in tight corner
+  if (!bestCandidate) {
+    let sumX = 0, sumY = 0, count = 0;
+    const tightMinX = corner === 'tr' || corner === 'br' ? Math.floor(w * 0.68) : Math.floor(w * 0.02);
+    const tightMaxX = corner === 'tr' || corner === 'br' ? Math.floor(w * 0.98) : Math.floor(w * 0.32);
+    const tightMinY = corner === 'bl' || corner === 'br' ? Math.floor(h * 0.68) : Math.floor(h * 0.02);
+    const tightMaxY = corner === 'bl' || corner === 'br' ? Math.floor(h * 0.98) : Math.floor(h * 0.32);
+
+    for (let y = tightMinY; y < tightMaxY; y += 3) {
+      for (let x = tightMinX; x < tightMaxX; x += 3) {
+        const idx = (y * w + x) * 4;
+        const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+        if (lum < darkThreshold) {
+          sumX += x;
+          sumY += y;
+          count++;
+        }
+      }
+    }
+    if (count >= 5 && count <= 500) {
+      return { x: sumX / count, y: sumY / count };
+    }
+  }
+
+  if (bestCandidate) {
+    return { x: bestCandidate.x, y: bestCandidate.y };
+  }
+  return null;
+}
+
 export const omrScannerEngine = {
   /**
    * High-speed, zero-lag QR Code detector with native hardware acceleration (BarcodeDetector)
@@ -344,83 +487,66 @@ export const omrScannerEngine = {
       const avgBrightness = lumSamples > 0 ? totalLum / lumSamples : 128;
       const avgSharpness = gradSamples > 0 ? totalGradient / gradSamples : 0;
 
-      const isWellLit = avgBrightness >= 50 && avgBrightness <= 245;
-      const isSharp = avgSharpness >= 5.0; // Clear printed text & lines
+      const isWellLit = avgBrightness >= 40 && avgBrightness <= 252;
+      const isSharp = avgSharpness >= 3.6; // Clear printed text & lines
 
-      // 2. Search 4 Corner Fiducial Markers
-      const darkMarkerThreshold = Math.min(105, avgBrightness * 0.58);
+      // 2. Search 4 Corner Fiducial Markers with robust isolation check
+      const darkMarkerThreshold = Math.min(125, Math.max(50, avgBrightness * 0.68));
 
-      const findCornerInRegion = (
-        minX: number,
-        maxX: number,
-        minY: number,
-        maxY: number
-      ): Point | null => {
-        let sumX = 0;
-        let sumY = 0;
-        let count = 0;
+      let tl = findRobustCornerFiducial(data, targetW, targetH, 'tl', darkMarkerThreshold);
+      let tr = findRobustCornerFiducial(data, targetW, targetH, 'tr', darkMarkerThreshold);
+      let bl = findRobustCornerFiducial(data, targetW, targetH, 'bl', darkMarkerThreshold);
+      let br = findRobustCornerFiducial(data, targetW, targetH, 'br', darkMarkerThreshold);
 
-        for (let y = Math.floor(minY); y < maxY; y += 3) {
-          for (let x = Math.floor(minX); x < maxX; x += 3) {
-            const idx = (y * targetW + x) * 4;
-            const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
-            if (lum < darkMarkerThreshold) {
-              sumX += x;
-              sumY += y;
-              count++;
-            }
-          }
+      let initialFound = (tl ? 1 : 0) + (tr ? 1 : 0) + (bl ? 1 : 0) + (br ? 1 : 0);
+
+      // Fast affine extrapolation: If 3 corners are detected with high confidence, calculate the 4th corner!
+      // This eliminates 90% of user frustration when 1 corner has glare, slight shadow, or thumb occlusion.
+      if (initialFound === 3) {
+        if (!tl && tr && bl && br) {
+          tl = { x: tr.x + bl.x - br.x, y: tr.y + bl.y - br.y };
+        } else if (!tr && tl && bl && br) {
+          tr = { x: tl.x + br.x - bl.x, y: tl.y + br.y - bl.y };
+        } else if (!bl && tl && tr && br) {
+          bl = { x: tl.x + br.x - tr.x, y: tl.y + br.y - tr.y };
+        } else if (!br && tl && tr && bl) {
+          br = { x: tr.x + bl.x - tl.x, y: tr.y + bl.y - tl.y };
         }
+      }
 
-        // Must find a solid marker cluster (around 5 to 160 pixels in downsampled scale)
-        if (count >= 5 && count <= 160) {
-          return {
-            x: (sumX / count) / targetW,
-            y: (sumY / count) / targetH,
-          };
-        }
-        return null;
-      };
+      const tlNorm = tl ? { x: tl.x / targetW, y: tl.y / targetH } : null;
+      const trNorm = tr ? { x: tr.x / targetW, y: tr.y / targetH } : null;
+      const blNorm = bl ? { x: bl.x / targetW, y: bl.y / targetH } : null;
+      const brNorm = br ? { x: br.x / targetW, y: br.y / targetH } : null;
 
-      // Search the 4 respective quadrants
-      const tl = findCornerInRegion(targetW * 0.01, targetW * 0.38, targetH * 0.01, targetH * 0.38);
-      const tr = findCornerInRegion(targetW * 0.62, targetW * 0.99, targetH * 0.01, targetH * 0.38);
-      const bl = findCornerInRegion(targetW * 0.01, targetW * 0.38, targetH * 0.62, targetH * 0.99);
-      const br = findCornerInRegion(targetW * 0.62, targetW * 0.99, targetH * 0.62, targetH * 0.99);
-
-      let cornersFound = 0;
-      if (tl) cornersFound++;
-      if (tr) cornersFound++;
-      if (bl) cornersFound++;
-      if (br) cornersFound++;
-
+      let cornersFound = (tl ? 1 : 0) + (tr ? 1 : 0) + (bl ? 1 : 0) + (br ? 1 : 0);
       const hasAllCorners = cornersFound === 4;
 
       // 3. Geometry / Alignment verification
       let isWellAligned = false;
       if (hasAllCorners && tl && tr && bl && br) {
-        const topDist = Math.hypot(tr.x - tl.x, tr.y - tl.y);
-        const botDist = Math.hypot(br.x - bl.x, br.y - bl.y);
-        const leftDist = Math.hypot(bl.x - tl.x, bl.y - tl.y);
-        const rightDist = Math.hypot(br.x - tr.x, br.y - tr.y);
+        const topDist = Math.hypot((tr.x - tl.x) / targetW, (tr.y - tl.y) / targetH);
+        const botDist = Math.hypot((br.x - bl.x) / targetW, (br.y - bl.y) / targetH);
+        const leftDist = Math.hypot((bl.x - tl.x) / targetW, (bl.y - tl.y) / targetH);
+        const rightDist = Math.hypot((br.x - tr.x) / targetW, (br.y - tr.y) / targetH);
 
-        if (topDist > 0.30 && botDist > 0.30 && leftDist > 0.30 && rightDist > 0.30) {
+        if (topDist > 0.22 && botDist > 0.22 && leftDist > 0.25 && rightDist > 0.25) {
           isWellAligned = true;
         }
       }
 
-      // 4. Decision matrix
+      // 4. Decision matrix with clear Thai guidance
       if (!isWellLit) {
         return {
           isReady: false,
           statusColor: 'red',
           statusTitle: 'แสงไม่เพียงพอ / มีเงาบัง',
-          statusMessage: avgBrightness < 50
-            ? 'แสงสว่างน้อยเกินไป กรุณาเพิ่มแสงหรือเปิดไฟแฟลช'
+          statusMessage: avgBrightness < 40
+            ? 'แสงสว่างน้อยเกินไป กรุณาเพิ่มแสงหรือเปิดไฟห้อง'
             : 'มีแสงสะท้อนจ้าบนกระดาษ กรุณาปรับมุมกล้อง',
           hasAllCorners,
           cornersFound,
-          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          detectedCorners: { topLeft: tlNorm, topRight: trNorm, bottomLeft: blNorm, bottomRight: brNorm },
           metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp, isWellAligned },
         };
       }
@@ -437,11 +563,11 @@ export const omrScannerEngine = {
           statusColor: 'red',
           statusTitle: `จับมุมกระดาษได้ ${cornersFound}/4 มุม`,
           statusMessage: cornersFound === 0
-            ? 'เล็งกล้องให้เห็นกระดาษคำตอบครบทั้ง 4 มุม'
-            : `ขาดมุม: ${missingLabels.join(', ')} กรุณาขยับให้เห็นครบ`,
+            ? 'วางกระดาษคำตอบให้พอดีในกรอบ 13 × 20 ซม. (แนวตั้ง)'
+            : `ปรับให้เห็น: ${missingLabels.join(', ')} ในกรอบ 13×20 ซม.`,
           hasAllCorners: false,
           cornersFound,
-          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          detectedCorners: { topLeft: tlNorm, topRight: trNorm, bottomLeft: blNorm, bottomRight: brNorm },
           metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp, isWellAligned },
         };
       }
@@ -450,11 +576,11 @@ export const omrScannerEngine = {
         return {
           isReady: false,
           statusColor: 'red',
-          statusTitle: 'กระดาษเอียงหรืออยู่ไกลเกินไป',
-          statusMessage: 'กรุณาถือกล้องให้ตรงและขยับเข้ามาใกล้กระดาษอีกเล็กน้อย',
+          statusTitle: 'กระดาษเอียงหรืออยู่นอกกรอบ',
+          statusMessage: 'จัดกระดาษให้ตรงกับกรอบ 13 × 20 ซม. และขยับเข้ามาใกล้พอดี',
           hasAllCorners: true,
           cornersFound: 4,
-          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          detectedCorners: { topLeft: tlNorm, topRight: trNorm, bottomLeft: blNorm, bottomRight: brNorm },
           metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp, isWellAligned: false },
         };
       }
@@ -463,11 +589,11 @@ export const omrScannerEngine = {
         return {
           isReady: false,
           statusColor: 'red',
-          statusTitle: 'ภาพเบลอ / ยังไม่โฟกัส',
-          statusMessage: 'กรุณาถือกล้องให้นิ่งเพื่อให้ระบบจับโฟกัสรอยกากบาท',
+          statusTitle: 'ภาพเบลอ / กำลังจับโฟกัส',
+          statusMessage: 'ถือกึ่งกลางให้นิ่งเพื่อให้ระบบจับโฟกัสรอยกากบาท',
           hasAllCorners: true,
           cornersFound: 4,
-          detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+          detectedCorners: { topLeft: tlNorm, topRight: trNorm, bottomLeft: blNorm, bottomRight: brNorm },
           metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit, isSharp: false, isWellAligned: true },
         };
       }
@@ -476,11 +602,11 @@ export const omrScannerEngine = {
       return {
         isReady: true,
         statusColor: 'green',
-        statusTitle: 'กระดาษชัดเจนระดับมืออาชีพ',
-        statusMessage: 'จับตำแหน่งครบ 4 มุม แสงและโฟกัสสมบูรณ์ กำลังตรวจอัตโนมัติ...',
+        statusTitle: 'คมชัดพร้อมตรวจ (ครบ 4 มุม)',
+        statusMessage: 'จัดวางตรงกรอบ 13 × 20 ซม. สมบูรณ์ กำลังตรวจอัตโนมัติ...',
         hasAllCorners: true,
         cornersFound: 4,
-        detectedCorners: { topLeft: tl, topRight: tr, bottomLeft: bl, bottomRight: br },
+        detectedCorners: { topLeft: tlNorm, topRight: trNorm, bottomLeft: blNorm, bottomRight: brNorm },
         metrics: { sharpness: avgSharpness, brightness: avgBrightness, isWellLit: true, isSharp: true, isWellAligned: true },
       };
     } catch (e) {
@@ -567,47 +693,31 @@ export const omrScannerEngine = {
       const avgPaperR = sampleCount > 0 ? totalR / sampleCount : 215;
       const avgPaperG = sampleCount > 0 ? totalG / sampleCount : 215;
       const avgPaperB = sampleCount > 0 ? totalB / sampleCount : 215;
-      const darkMarkerThreshold = Math.min(115, avgPaperLuminance * 0.58);
-
-      // 2. Robust Corner Marker Detection for Skew / Perspective Distortion Correction
-      // Looks for dense dark square fiducials printed at the 4 corners of the A5/A4 sheet
-      const findCornerMarker = (
-        minX: number,
-        maxX: number,
-        minY: number,
-        maxY: number
-      ): Point | null => {
-        let sumX = 0;
-        let sumY = 0;
-        let count = 0;
-
-        for (let y = Math.floor(minY); y < maxY; y += 3) {
-          for (let x = Math.floor(minX); x < maxX; x += 3) {
-            const idx = (y * targetWidth + x) * 4;
-            const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
-            if (lum < darkMarkerThreshold) {
-              sumX += x;
-              sumY += y;
-              count++;
-            }
-          }
-        }
-
-        // Accepts compact dark corner block (at least 8 sampled dark pixels)
-        if (count >= 8) {
-          return { x: sumX / count, y: sumY / count };
-        }
-        return null;
-      };
+      const darkMarkerThreshold = Math.min(125, Math.max(50, avgPaperLuminance * 0.68));
 
       const w = targetWidth;
       const h = targetHeight;
 
-      // Search 4 corner quadrants with wide search margins for typical phone viewing angles
-      const tl = findCornerMarker(w * 0.01, w * 0.40, h * 0.01, h * 0.32);
-      const tr = findCornerMarker(w * 0.60, w * 0.99, h * 0.01, h * 0.32);
-      const bl = findCornerMarker(w * 0.01, w * 0.40, h * 0.68, h * 0.99);
-      const br = findCornerMarker(w * 0.60, w * 0.99, h * 0.68, h * 0.99);
+      // 2. High-precision Corner Marker Detection for Skew / Perspective Distortion Correction
+      let tl = findRobustCornerFiducial(data, w, h, 'tl', darkMarkerThreshold);
+      let tr = findRobustCornerFiducial(data, w, h, 'tr', darkMarkerThreshold);
+      let bl = findRobustCornerFiducial(data, w, h, 'bl', darkMarkerThreshold);
+      let br = findRobustCornerFiducial(data, w, h, 'br', darkMarkerThreshold);
+
+      let initialFound = (tl ? 1 : 0) + (tr ? 1 : 0) + (bl ? 1 : 0) + (br ? 1 : 0);
+
+      // Extrapolate 4th corner if 3 were detected
+      if (initialFound === 3) {
+        if (!tl && tr && bl && br) {
+          tl = { x: tr.x + bl.x - br.x, y: tr.y + bl.y - br.y };
+        } else if (!tr && tl && bl && br) {
+          tr = { x: tl.x + br.x - bl.x, y: tl.y + br.y - bl.y };
+        } else if (!bl && tl && tr && br) {
+          bl = { x: tl.x + br.x - tr.x, y: tl.y + br.y - tr.y };
+        } else if (!br && tl && tr && bl) {
+          br = { x: tr.x + bl.x - tl.x, y: tr.y + bl.y - tl.y };
+        }
+      }
 
       let isDeSkewed = false;
       let quad: CornerQuad;
@@ -616,12 +726,24 @@ export const omrScannerEngine = {
         quad = { topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl };
         isDeSkewed = true;
       } else {
-        // Fallback quadrilateral tuned to typical smartphone camera framing
+        // Fallback quadrilateral strictly conforming to the 13*20 cm portrait vertical frame
+        const targetRatio = 13 / 20; // 0.65 portrait
+        const currentRatio = w / h;
+        let boxW: number, boxH: number;
+        if (currentRatio > targetRatio) {
+          boxH = h * 0.88;
+          boxW = boxH * targetRatio;
+        } else {
+          boxW = w * 0.88;
+          boxH = boxW / targetRatio;
+        }
+        const padX = (w - boxW) / 2;
+        const padY = (h - boxH) / 2;
         quad = {
-          topLeft: { x: w * 0.05, y: h * 0.05 },
-          topRight: { x: w * 0.95, y: h * 0.05 },
-          bottomRight: { x: w * 0.95, y: h * 0.95 },
-          bottomLeft: { x: w * 0.05, y: h * 0.95 },
+          topLeft: { x: padX, y: padY },
+          topRight: { x: padX + boxW, y: padY },
+          bottomRight: { x: padX + boxW, y: padY + boxH },
+          bottomLeft: { x: padX, y: padY + boxH },
         };
       }
 

@@ -755,13 +755,13 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           </div>
         )}
 
-        {/* Heads-Up Display (HUD): 4 Corner Brackets & QR Target Box with Dynamic Green/Red State */}
+        {/* Heads-Up Display (HUD): 13*20 cm Portrait Frame & Dynamic 4 Corner Fiducial Alignment */}
         {cameraActive && !scanOutput && !cameraError && (
-          <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-3 sm:p-6">
-            {/* Top Bar: Subject Badge + QR Target Reticle */}
+          <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-2 sm:p-4">
+            {/* Top Bar: Subject Badge */}
             <div className="flex items-center justify-between pt-1 px-1">
               {/* Left: Identified Subject & Grade Level Status Badge */}
-              <div className="max-w-[70%]">
+              <div className="max-w-[85%]">
                 {activeExam ? (
                   <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-2xl shadow-lg flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0 animate-ping" />
@@ -786,96 +786,156 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                 )}
               </div>
 
-              {/* Right: QR Code Targeting Reticle */}
-              <div className="flex flex-col items-center gap-1 bg-black/50 backdrop-blur-xs p-1.5 rounded-xl border border-indigo-400/50 shadow-lg shrink-0">
-                <div
-                  className={`w-14 h-14 border-2 rounded-lg flex items-center justify-center ${
-                    lastDetectedQR
-                      ? 'border-emerald-400 bg-emerald-500/10'
-                      : 'border-dashed border-indigo-400 animate-pulse'
-                  }`}
-                >
-                  <QrCode
-                    className={`w-7 h-7 ${
-                      lastDetectedQR ? 'text-emerald-400' : 'text-indigo-300 opacity-80'
-                    }`}
-                  />
-                </div>
-                <span
-                  className={`text-[8px] font-bold uppercase tracking-tight ${
-                    lastDetectedQR ? 'text-emerald-300' : 'text-indigo-200'
-                  }`}
-                >
-                  {lastDetectedQR ? 'พบ QR โค้ด' : 'เล็ง QR มุมขวา'}
-                </span>
+              {/* Status Tag */}
+              <div className="bg-slate-900/85 backdrop-blur-md border border-slate-700/80 px-2.5 py-1 rounded-xl text-[10px] font-bold text-slate-200">
+                13 × 20 ซม.
               </div>
             </div>
 
-            {/* 4 Corner Registration Fiducial Markers Overlay (Reactive Red vs Green) */}
-            <div
-              className={`absolute inset-6 sm:inset-10 border-2 rounded-3xl pointer-events-none transition-colors duration-200 ${
-                frameQuality?.statusColor === 'green'
-                  ? 'border-emerald-500/40 shadow-[0_0_24px_rgba(16,185,129,0.35)]'
-                  : 'border-rose-500/40 shadow-[0_0_24px_rgba(244,63,94,0.35)]'
-              }`}
-            >
-              {/* Corner 1: Top-Left */}
-              <div
-                className={`absolute -top-1.5 -left-1.5 w-9 h-9 border-t-4 border-l-4 rounded-tl-xl transition-all duration-200 ${
-                  frameQuality?.statusColor === 'green'
-                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
-                    : frameQuality?.detectedCorners.topLeft
-                    ? 'border-emerald-500'
-                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
-                }`}
-              />
-              {/* Corner 2: Top-Right */}
-              <div
-                className={`absolute -top-1.5 -right-1.5 w-9 h-9 border-t-4 border-r-4 rounded-tr-xl transition-all duration-200 ${
-                  frameQuality?.statusColor === 'green'
-                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
-                    : frameQuality?.detectedCorners.topRight
-                    ? 'border-emerald-500'
-                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
-                }`}
-              />
-              {/* Corner 3: Bottom-Left */}
-              <div
-                className={`absolute -bottom-1.5 -left-1.5 w-9 h-9 border-b-4 border-l-4 rounded-bl-xl transition-all duration-200 ${
-                  frameQuality?.statusColor === 'green'
-                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
-                    : frameQuality?.detectedCorners.bottomLeft
-                    ? 'border-emerald-500'
-                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
-                }`}
-              />
-              {/* Corner 4: Bottom-Right */}
-              <div
-                className={`absolute -bottom-1.5 -right-1.5 w-9 h-9 border-b-4 border-r-4 rounded-br-xl transition-all duration-200 ${
-                  frameQuality?.statusColor === 'green'
-                    ? 'border-emerald-400 shadow-[0_0_12px_#34d399]'
-                    : frameQuality?.detectedCorners.bottomRight
-                    ? 'border-emerald-500'
-                    : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
-                }`}
-              />
-            </div>
+            {/* Center: 13*20 cm Portrait Viewfinder Frame (Aspect Ratio 13 : 20 = 0.65) */}
+            <div className="flex-1 w-full flex items-center justify-center my-1 overflow-hidden">
+              <div className="relative w-[min(calc(100vw-2rem),calc((100vh-215px)*13/20))] aspect-[13/20] max-h-[calc(100vh-215px)] pointer-events-none flex flex-col justify-between items-center transition-all duration-200">
+                {/* 13*20 Border with dark vignette backdrop shadow masking outside area */}
+                <div
+                  className={`absolute inset-0 rounded-2xl pointer-events-none transition-colors duration-200 border-2 ${
+                    frameQuality?.statusColor === 'green'
+                      ? 'border-emerald-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.55),0_0_24px_rgba(52,211,153,0.5)]'
+                      : 'border-rose-500/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.58),0_0_18px_rgba(244,63,94,0.35)]'
+                  }`}
+                />
 
-            {/* Animated Laser Scanning Beam (Green when good, Red when not ready) */}
-            <div className="absolute inset-x-8 top-16 bottom-24 pointer-events-none overflow-hidden">
-              <div
-                className={`w-full h-1 bg-gradient-to-r from-transparent via-current to-transparent animate-[bounce_2.5s_infinite] ${
-                  frameQuality?.statusColor === 'green'
-                    ? 'text-emerald-400 shadow-[0_0_16px_#34d399]'
-                    : 'text-rose-500 shadow-[0_0_16px_#f43f5e]'
-                }`}
-              />
+                {/* 4 Corner Registration Fiducial Markers Overlay (Strictly 13*20 cm corner brackets) */}
+                {/* Corner 1: Top-Left */}
+                <div
+                  className={`absolute -top-1.5 -left-1.5 w-10 h-10 border-t-4 border-l-4 rounded-tl-xl transition-all duration-200 ${
+                    frameQuality?.statusColor === 'green'
+                      ? 'border-emerald-400 shadow-[0_0_14px_#34d399]'
+                      : frameQuality?.detectedCorners.topLeft
+                      ? 'border-emerald-500 shadow-[0_0_10px_#10b981]'
+                      : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1.5 left-1.5 w-2.5 h-2.5 rounded-xs transition-colors duration-200 ${
+                      frameQuality?.statusColor === 'green' || frameQuality?.detectedCorners.topLeft
+                        ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                        : 'bg-rose-500/80'
+                    }`}
+                  />
+                </div>
+
+                {/* Corner 2: Top-Right */}
+                <div
+                  className={`absolute -top-1.5 -right-1.5 w-10 h-10 border-t-4 border-r-4 rounded-tr-xl transition-all duration-200 ${
+                    frameQuality?.statusColor === 'green'
+                      ? 'border-emerald-400 shadow-[0_0_14px_#34d399]'
+                      : frameQuality?.detectedCorners.topRight
+                      ? 'border-emerald-500 shadow-[0_0_10px_#10b981]'
+                      : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-xs transition-colors duration-200 ${
+                      frameQuality?.statusColor === 'green' || frameQuality?.detectedCorners.topRight
+                        ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                        : 'bg-rose-500/80'
+                    }`}
+                  />
+                </div>
+
+                {/* Corner 3: Bottom-Left */}
+                <div
+                  className={`absolute -bottom-1.5 -left-1.5 w-10 h-10 border-b-4 border-l-4 rounded-bl-xl transition-all duration-200 ${
+                    frameQuality?.statusColor === 'green'
+                      ? 'border-emerald-400 shadow-[0_0_14px_#34d399]'
+                      : frameQuality?.detectedCorners.bottomLeft
+                      ? 'border-emerald-500 shadow-[0_0_10px_#10b981]'
+                      : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                  }`}
+                >
+                  <div
+                    className={`absolute bottom-1.5 left-1.5 w-2.5 h-2.5 rounded-xs transition-colors duration-200 ${
+                      frameQuality?.statusColor === 'green' || frameQuality?.detectedCorners.bottomLeft
+                        ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                        : 'bg-rose-500/80'
+                    }`}
+                  />
+                </div>
+
+                {/* Corner 4: Bottom-Right */}
+                <div
+                  className={`absolute -bottom-1.5 -right-1.5 w-10 h-10 border-b-4 border-r-4 rounded-br-xl transition-all duration-200 ${
+                    frameQuality?.statusColor === 'green'
+                      ? 'border-emerald-400 shadow-[0_0_14px_#34d399]'
+                      : frameQuality?.detectedCorners.bottomRight
+                      ? 'border-emerald-500 shadow-[0_0_10px_#10b981]'
+                      : 'border-rose-500 shadow-[0_0_10px_#f43f5e]'
+                  }`}
+                >
+                  <div
+                    className={`absolute bottom-1.5 right-1.5 w-2.5 h-2.5 rounded-xs transition-colors duration-200 ${
+                      frameQuality?.statusColor === 'green' || frameQuality?.detectedCorners.bottomRight
+                        ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                        : 'bg-rose-500/80'
+                    }`}
+                  />
+                </div>
+
+                {/* Header inside 13*20 Frame: Top Badge & QR Reticle */}
+                <div className="w-full flex items-start justify-between p-3 relative z-20">
+                  {/* Top-Center Frame Indicator */}
+                  <div className="bg-black/75 backdrop-blur-md px-3 py-1 rounded-full border border-slate-700/80 text-[10px] text-slate-200 font-semibold flex items-center gap-1.5 shadow-md">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                    <span>กรอบ 13 × 20 ซม. (แนวตั้ง)</span>
+                  </div>
+
+                  {/* QR Code Targeting Box (Matching top-right of 13*20cm sheet) */}
+                  <div className="flex flex-col items-center gap-1 bg-black/70 backdrop-blur-xs p-1.5 rounded-xl border border-indigo-400/60 shadow-lg">
+                    <div
+                      className={`w-12 h-12 border-2 rounded-lg flex items-center justify-center ${
+                        lastDetectedQR
+                          ? 'border-emerald-400 bg-emerald-500/20'
+                          : 'border-dashed border-indigo-400 animate-pulse'
+                      }`}
+                    >
+                      <QrCode
+                        className={`w-6 h-6 ${
+                          lastDetectedQR ? 'text-emerald-400' : 'text-indigo-300 opacity-80'
+                        }`}
+                      />
+                    </div>
+                    <span
+                      className={`text-[8px] font-bold uppercase tracking-tight ${
+                        lastDetectedQR ? 'text-emerald-300' : 'text-indigo-200'
+                      }`}
+                    >
+                      {lastDetectedQR ? 'QR ติดแล้ว' : 'QR มุมขวา'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Animated Laser Scanning Beam inside 13*20 Frame */}
+                <div className="absolute inset-x-3 top-14 bottom-10 pointer-events-none overflow-hidden">
+                  <div
+                    className={`w-full h-1 bg-gradient-to-r from-transparent via-current to-transparent animate-[bounce_2.2s_infinite] ${
+                      frameQuality?.statusColor === 'green'
+                        ? 'text-emerald-400 shadow-[0_0_16px_#34d399]'
+                        : 'text-rose-500 shadow-[0_0_16px_#f43f5e]'
+                    }`}
+                  />
+                </div>
+
+                {/* Bottom guide text inside frame */}
+                <div className="pb-2.5 text-[10px] text-slate-300/80 font-medium drop-shadow-md">
+                  จัด 4 มุมกระดาษให้พอดีกับกรอบ 13 × 20 ซม.
+                </div>
+              </div>
             </div>
 
             {/* Real-time Guidance Banner: Red (Warning/Missing/Blur) vs Green (Ready/Complete) */}
-            <div className="flex flex-col items-center gap-1.5 pb-2 z-20 px-2">
+            <div className="flex flex-col items-center gap-1.5 pb-1 z-20 px-2">
               {/* Corner status indicator dots: TL, TR, BL, BR */}
-              <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-full border border-slate-800 text-[10px]">
+              <div className="flex items-center gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1 rounded-full border border-slate-800 text-[10px]">
                 <span className="text-slate-400 font-semibold mr-0.5">สถานะมุมกระดาษ:</span>
                 <span
                   className={`flex items-center gap-0.5 font-bold ${
