@@ -484,23 +484,29 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       // Snappy non-blocking UI: yield 10ms to let the shutter flash render smoothly
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      // 1. If activeExam is not selected yet, scan image for embedded QR code first!
-      let targetExam = overrideExam || activeExam || matchedExamRef.current;
-      if (!targetExam) {
-        const qrInfo = omrScannerEngine.readQRCode(imageSource);
-        if (qrInfo) {
-          const freshExams = storageService.getAllExamsRaw();
-          const matched = freshExams.find(
-            (e) =>
-              (qrInfo.examId && (e.id === qrInfo.examId || e.id.toLowerCase() === qrInfo.examId.toLowerCase())) ||
-              (qrInfo.title && e.title.trim().toLowerCase() === qrInfo.title.trim().toLowerCase())
-          );
-          if (matched) {
-            targetExam = matched;
-            setActiveExam(matched);
-            matchedExamRef.current = matched;
-          }
+      // 1. Scan image for embedded QR code first to identify the subject!
+      // This allows scanning ANY exam on the main screen since each subject's QR code is distinct.
+      const qrInfo = omrScannerEngine.readQRCode(imageSource);
+      let targetExam: Exam | null = null;
+
+      if (qrInfo && (qrInfo.examId || qrInfo.title)) {
+        const freshExams = storageService.getAllExamsRaw();
+        const matched = freshExams.find(
+          (e) =>
+            (qrInfo.examId && (e.id === qrInfo.examId || e.id.toLowerCase() === qrInfo.examId.toLowerCase())) ||
+            (qrInfo.title && e.title.trim().toLowerCase() === qrInfo.title.trim().toLowerCase())
+        );
+        if (matched) {
+          targetExam = matched;
+          setActiveExam(matched);
+          matchedExamRef.current = matched;
+          setQrDetectedNotice(`วิชา: ${matched.title}${matched.gradeLevel ? ` (${matched.gradeLevel})` : ''} • ${matched.questionCount} ข้อ`);
         }
+      }
+
+      // If no QR was matched in this photo, fallback to overrideExam or activeExam or matchedExamRef
+      if (!targetExam) {
+        targetExam = overrideExam || activeExam || matchedExamRef.current;
       }
 
       // If still no exam matched, default to the most recent exam or prompt user
@@ -1192,20 +1198,46 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                 </div>
 
                 <div>
-                  <h3 className="font-heading font-black text-lg sm:text-xl text-white">
-                    {activeExam?.title || 'กระดาษคำตอบ'}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 bg-indigo-950/60 border border-indigo-500/30 px-2 py-0.5 rounded-md">
+                      {scanOutput.detectedQrExamTitle ? 'ตรวจพบจาก QR โค้ด' : 'วิชาที่ตรวจ'}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {scanOutput.total <= 15 ? 'กระดาษคำตอบ 15 ข้อ ตรงกลางแผ่น' : 'กระดาษคำตอบฝนวงกลม 3 คอลัมน์'}
+                    </span>
+                  </div>
+                  <h3 className="font-heading font-black text-lg sm:text-xl text-white mt-1">
+                    {scanOutput.detectedQrExamTitle || activeExam?.title || 'กระดาษคำตอบ'}
                   </h3>
                   {activeExam?.gradeLevel && (
                     <span className="inline-block text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-0.5 rounded-md mt-1">
                       {activeExam.gradeLevel}
                     </span>
                   )}
+
                   {/* Hero Score Display: "ได้ X จากทั้งหมด Y ข้อ (Z%)" */}
                   <div className="mt-2 p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
                     <div className="text-base sm:text-lg font-heading font-extrabold text-white">
                       ได้ <span className="text-emerald-400 text-xl sm:text-2xl font-black">{scanOutput.score}</span> จากทั้งหมด <span className="font-mono">{scanOutput.total}</span> ข้อ ({scanOutput.pct}%)
                     </div>
                   </div>
+
+                  {/* Notice if double-marks detected */}
+                  {scanOutput.answers.some((a) => a.isMultipleMarked) && (
+                    <div className="mt-2 p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>
+                        พบการฝนซ้ำ 2 ตัวเลือกในข้อ:{' '}
+                        <strong>
+                          {scanOutput.answers
+                            .filter((a) => a.isMultipleMarked)
+                            .map((a) => a.questionNumber)
+                            .join(', ')}
+                        </strong>{' '}
+                        (ถือว่าตอบผิดตามเกณฑ์ OMR)
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 3 Quick Metrics Cards */}
@@ -1233,8 +1265,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                   className="max-h-48 sm:max-h-56 w-auto object-contain"
                 />
                 <div className="absolute bottom-2 left-2 right-2 bg-slate-950/80 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] text-slate-300 flex items-center justify-between">
-                  <span>กรอบเขียว (✓) = ถูก | กรอบแดง (X) = ผิด</span>
-                  <span className="text-emerald-400 font-semibold">ตรวจจับตรงจุด</span>
+                  <span>วงกลมเขียว (✓) = ถูก | วงกลมแดง (✗) = ผิด</span>
+                  <span className="text-emerald-400 font-semibold">ระบบ OMR ตรวจแม่นยำ</span>
                 </div>
               </div>
 
@@ -1262,7 +1294,10 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {scanOutput.answers.map((ans) => {
                         const thaiLabels = ['ก', 'ข', 'ค', 'ง', 'จ'];
-                        const selectedText = ans.selectedChoice !== null ? thaiLabels[ans.selectedChoice] || `${ans.selectedChoice + 1}` : 'ไม่ตอบ';
+                        let selectedText = ans.selectedChoice !== null ? thaiLabels[ans.selectedChoice] || `${ans.selectedChoice + 1}` : 'ไม่ตอบ';
+                        if (ans.isMultipleMarked) {
+                          selectedText = 'ฝนซ้ำ (ผิด)';
+                        }
                         const correctText = thaiLabels[ans.correctChoice] || `${ans.correctChoice + 1}`;
 
                         return (
@@ -1278,7 +1313,13 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                               <span className="font-bold text-slate-400 text-[11px]">
                                 ข้อ {ans.questionNumber}:
                               </span>
-                              <span className={`font-black px-1.5 py-0.5 rounded text-xs ${ans.isCorrect ? 'bg-emerald-600/30 text-emerald-300' : 'bg-rose-600/30 text-rose-300'}`}>
+                              <span className={`font-black px-1.5 py-0.5 rounded text-xs ${
+                                ans.isCorrect
+                                  ? 'bg-emerald-600/30 text-emerald-300'
+                                  : ans.isMultipleMarked
+                                  ? 'bg-amber-600/30 text-amber-300 border border-amber-500/40 text-[10px]'
+                                  : 'bg-rose-600/30 text-rose-300'
+                              }`}>
                                 {selectedText}
                               </span>
                             </div>

@@ -64,15 +64,15 @@ export const MinimalHomeView: React.FC<MinimalHomeViewProps> = ({
               <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                 <span className="font-mono text-xs font-bold text-slate-400 shrink-0">02.</span>
                 <h2 className="font-heading font-bold text-base sm:text-lg text-slate-900 group-hover:text-emerald-600 transition-colors shrink-0">
-                  สแกนคิวอาร์โค้ด
+                  สแกนคิวอาร์โค้ด / ตรวจกระดาษคำตอบ
                 </h2>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-emerald-100 text-emerald-800 shrink-0 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  ยืนยันสีเขียวแล้วกดถ่าย • ตรวจทันที
+                  สแกนได้ทุกวิชา • ฝนวงกลม OMR
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1 truncate">
-                สแกนได้ทุกวิชา • ยืนยันระยะและแสงสีเขียวก่อนกดถ่าย แสดงผลคะแนนทันทีแม่นยำระดับมืออาชีพ
+                สแกนได้ทุกวิชาแยกตาม QR Code • ตรวจจับกระดาษคำตอบฝนวงกลมดินสอ/ปากกา/ลิควิด • แสดงผลคะแนนทันที
               </p>
             </div>
           </div>

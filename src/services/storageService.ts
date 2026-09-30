@@ -45,6 +45,25 @@ const DEFAULT_ADMIN: UserProfile = {
 
 const INITIAL_EXAMS: Exam[] = [
   {
+    id: 'exam-thai-15',
+    title: 'ภาษาไทย ม.2 (หลักการใช้ภาษาและวรรณคดี)',
+    code: 'THAI-201',
+    gradeLevel: 'ชั้นมัธยมศึกษาปีที่ 2',
+    description: 'แบบทดสอบปรนัย 15 ข้อ (กระดาษคำตอบ 15 ข้อ อยู่ตรงกลางแผ่น)',
+    questionCount: 15,
+    choiceCount: 4,
+    passPercentage: 50,
+    createdBy: 'admin@system.local',
+    creatorName: 'ผู้ดูแลระบบ (Admin)',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    answerKey: {
+      1: 0, 2: 1, 3: 2, 4: 3, 5: 0,
+      6: 1, 7: 2, 8: 3, 9: 0, 10: 1,
+      11: 2, 12: 3, 13: 0, 14: 1, 15: 2,
+    },
+  },
+  {
     id: 'exam-science-01',
     title: 'วิทยาศาสตร์และเทคโนโลยี ม.3 (ปลายภาคเรียนที่ 1)',
     code: 'SCI-301',
@@ -274,6 +293,11 @@ export const storageService = {
     } else {
       try {
         allExams = JSON.parse(raw);
+        // Ensure default 15-question exam is present for testing
+        if (!allExams.some((e) => e.id === 'exam-thai-15')) {
+          allExams.unshift(INITIAL_EXAMS[0]);
+          localStorage.setItem(EXAMS_KEY, JSON.stringify(allExams));
+        }
       } catch {
         allExams = [];
       }

@@ -225,31 +225,39 @@ export const pdfGenerator = {
         ctx.textAlign = 'left';
       }
 
-      // Instruction Badge (เหมือน images.png)
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(offsetX + padX + 50 + (headerBoxW - 380) / 2, padY + 245, 380, 26);
+      // Instruction Badge (กระดาษคำตอบฝนวงกลม)
+      ctx.fillStyle = '#334155';
+      const badgeW = 440;
+      ctx.fillRect(offsetX + padX + 50 + (headerBoxW - badgeW) / 2, padY + 245, badgeW, 26);
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 15px "Sarabun", sans-serif';
+      ctx.font = 'bold 13px "Sarabun", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('ให้นักเรียนทำเครื่องหมาย X ลงบนช่องที่เลือกคำตอบ', offsetX + padX + 50 + headerBoxW / 2, padY + 263);
+      ctx.fillText('ใช้ดินสอหรือปากกาฝนในวงกลมให้เข้มเต็มวง (ลบด้วยน้ำยาลบคำผิดได้ • ห้ามฝนเกิน 1 ข้อ)', offsetX + padX + 50 + headerBoxW / 2, padY + 263);
       ctx.textAlign = 'left';
 
       // Strictly 4 choices (ก, ข, ค, ง and A, B, C, D)
       const choiceLabels = ['ก', 'ข', 'ค', 'ง'];
       const latinLabels = ['A', 'B', 'C', 'D'];
 
-      // 3 Tables / Frames (Table 1: 1-15, Table 2: 16-30, Table 3: 31-45)
-      // Cells are squares with comfortable breathing space at bottom
-      const tablesConfig = [
-        { start: 1, end: 15 },
-        { start: 16, end: 30 },
-        { start: 31, end: 45 },
-      ];
+      // Layout:
+      // If totalQ <= 15: Single centered table (15 ข้อ อยู่ตรงกลางเลย)
+      // If totalQ > 15: 3 Tables / Frames (Table 1: 1-15, Table 2: 16-30, Table 3: 31-45)
+      const isSingleColumn = totalQ <= 15;
+      const tablesConfig = isSingleColumn
+        ? [{ start: 1, end: 15 }]
+        : [
+            { start: 1, end: 15 },
+            { start: 16, end: 30 },
+            { start: 31, end: 45 },
+          ];
 
       const gridStartY = padY + 285;
       const totalGridW = headerBoxW;
       const tableGap = 16;
-      const tableW = (totalGridW - tableGap * 2) / 3;
+      const tableW = isSingleColumn
+        ? totalGridW * 0.46
+        : (totalGridW - tableGap * 2) / 3;
+
       // Leave comfortable breathing space at bottom
       const gridEndY = height - padY - 75;
       const availableGridH = gridEndY - gridStartY;
@@ -259,7 +267,9 @@ export const pdfGenerator = {
       const rowH = (availableGridH - totalHeaderH) / 15;
 
       tablesConfig.forEach((cfg, tIdx) => {
-        const colX = offsetX + padX + 50 + tIdx * (tableW + tableGap);
+        const colX = isSingleColumn
+          ? offsetX + padX + 50 + (totalGridW - tableW) / 2
+          : offsetX + padX + 50 + tIdx * (tableW + tableGap);
 
         // Outer border for each table (กรอบชัดเจนในการแบ่ง)
         ctx.strokeStyle = '#020617';
@@ -319,14 +329,33 @@ export const pdfGenerator = {
             ctx.fillText(`${qNum}`, colX + numColW / 2, ry + rowH / 2 + 6);
           }
 
-          // Choice cells (empty square boxes)
-          choiceLabels.forEach((_, cIdx) => {
+          // Choice cells with Circular OMR Bubbles (ฝนวงกลม)
+          choiceLabels.forEach((lbl, cIdx) => {
             const cx = colX + numColW + cIdx * choiceColW;
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(cx, ry, choiceColW, rowH);
             ctx.strokeStyle = '#0f172a';
             ctx.lineWidth = 1;
             ctx.strokeRect(cx, ry, choiceColW, rowH);
+
+            if (isActive) {
+              const bubbleCx = cx + choiceColW / 2;
+              const bubbleCy = ry + rowH / 2;
+              const bubbleR = Math.min(choiceColW, rowH) * 0.36;
+
+              // Draw circular bubble border
+              ctx.strokeStyle = '#0f172a';
+              ctx.lineWidth = 1.8;
+              ctx.beginPath();
+              ctx.arc(bubbleCx, bubbleCy, bubbleR, 0, Math.PI * 2);
+              ctx.stroke();
+
+              // Draw choice letter inside circular bubble
+              ctx.fillStyle = '#1e293b';
+              ctx.font = 'bold 14px "Sarabun", sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillText(lbl, bubbleCx, bubbleCy + 5);
+            }
           });
         }
       });

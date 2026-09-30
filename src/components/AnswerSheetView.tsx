@@ -32,13 +32,28 @@ interface AnswerSheetViewProps {
  *     Row 1: ชื่อ - สกุล (ยาวเต็มบรรทัดเดี่ยวๆ)
  *     Row 2: ชั้น, เลขที่, วันที่ (อยู่ร่วมกันในบรรทัดที่ 2)
  */
+/**
+ * Single Answer Sheet Half (A5 size in A4 Landscape: 148.5mm x 210mm)
+ * - Circular OMR Bubbles (ฝนวงกลม):
+ *     Circles (◯) with crisp border for pencil (2B/HB) and pen (blue/black), supports liquid paper correction.
+ * - Dynamic Layout:
+ *     If total questions <= 15: Single centered table (ตรงกลางเลย)
+ *     If total questions > 15: 3 distinct tables:
+ *         Table 1 (Left): ข้อ 1 - 15
+ *         Table 2 (Center): ข้อ 16 - 30
+ *         Table 3 (Right): ข้อ 31 - 45
+ * - Strictly 4 Choices: ก, ข, ค, ง / A, B, C, D
+ * - Student info box:
+ *     Row 1: ชื่อ - สกุล (ยาวเต็มบรรทัด)
+ *     Row 2: ชั้น, เลขที่, วันที่
+ */
 const SingleAnswerSheetHalf: React.FC<{
   exam: Exam;
   qrCodeUrl: string;
   copyIndex: number;
 }> = ({ exam, qrCodeUrl, copyIndex }) => {
   const totalQ = exam.questionCount;
-  // Strictly 4 choices (ก, ข, ค, ง and A, B, C, D) to give maximum square space
+  const isSingleColumn = totalQ <= 15;
   const choiceCount = 4;
   const thaiLabels = ['ก', 'ข', 'ค', 'ง'];
   const latinLabels = ['A', 'B', 'C', 'D'];
@@ -50,13 +65,15 @@ const SingleAnswerSheetHalf: React.FC<{
     { start: 31, end: 45 },
   ];
 
-  const renderTable = (startQ: number, endQ: number, tableIdx: number) => {
+  const renderTable = (startQ: number, endQ: number, tableIdx: number, isCentered = false) => {
     const rows = Array.from({ length: 15 }, (_, i) => startQ + i);
 
     return (
       <div
         key={tableIdx}
-        className="flex-1 flex flex-col border-2 border-slate-950 bg-white rounded-xs overflow-hidden shadow-2xs"
+        className={`${
+          isCentered ? 'w-[62mm] max-w-[65mm]' : 'flex-1'
+        } flex flex-col border-2 border-slate-950 bg-white rounded-xs overflow-hidden shadow-2xs`}
       >
         <table className="w-full border-collapse border-slate-950 text-center select-none table-fixed">
           <thead>
@@ -98,20 +115,24 @@ const SingleAnswerSheetHalf: React.FC<{
                   key={qNum}
                   className="border-b border-slate-900 last:border-b-0 h-[8.5mm]"
                 >
-                  {/* Question Number Cell: shaded, snug against left border */}
+                  {/* Question Number Cell */}
                   <td className="border-r border-slate-900 bg-rose-50/80 font-mono font-black text-slate-950 text-xs sm:text-sm text-center p-0">
                     {isActive ? qNum : ''}
                   </td>
 
-                  {/* 4 Square Choice Cells (~8.6mm x 8.5mm square boxes) */}
+                  {/* 4 Circular Choice Bubbles (วงกลมสำหรับฝน) */}
                   {Array.from({ length: choiceCount }, (_, cIdx) => (
                     <td
                       key={cIdx}
-                      className={`border-r border-slate-900 last:border-r-0 p-0 text-center ${
+                      className={`border-r border-slate-900 last:border-r-0 p-0 text-center align-middle ${
                         isActive ? 'bg-white' : 'bg-slate-50/40'
                       }`}
                     >
-                      {/* Empty square cell for student to mark X */}
+                      {isActive ? (
+                        <div className="w-5.5 h-5.5 rounded-full border-2 border-slate-900 bg-white flex items-center justify-center font-bold text-slate-800 text-[10px] select-none mx-auto">
+                          {thaiLabels[cIdx]}
+                        </div>
+                      ) : null}
                     </td>
                   ))}
                 </tr>
@@ -212,16 +233,24 @@ const SingleAnswerSheetHalf: React.FC<{
 
         {/* Centered Instruction Pill Badge */}
         <div className="flex justify-center my-1 shrink-0">
-          <div className="bg-slate-600 text-white text-[9px] font-bold px-3 py-0.5 rounded-xs tracking-wide shadow-2xs">
-            ให้นักเรียนทำเครื่องหมาย X ลงบนช่องที่เลือกคำตอบ
+          <div className="bg-slate-700 text-white text-[9px] font-bold px-3 py-0.5 rounded-full tracking-wide shadow-2xs">
+            คำชี้แจง: ใช้ดินสอ 2B หรือปากกา ฝนในวงกลม [ ◯ ] ให้เข้มเต็มวง (ลบด้วยน้ำยาลบคำผิดได้ • ห้ามฝนเกิน 1 ข้อ)
           </div>
         </div>
 
-        {/* 3 Main Tables (3 กรอบชัดเจน): ตารางซ้าย 1-15, ตารางกลาง 16-30, ตารางขวา 31-45 */}
-        {/* Cells are square (~8.6mm x 8.5mm), with nice breathing margin at the bottom */}
-        <div className="flex gap-2 w-full items-start shrink-0 mb-1">
-          {tablesConfig.map((cfg, idx) => renderTable(cfg.start, cfg.end, idx))}
-        </div>
+        {/* Answer Tables Layout:
+            - If totalQ <= 15: Single centered table (15 ข้อ อยู่ตรงกลางเลย)
+            - If totalQ > 15: 3 distinct tables (ซ้าย 1-15, กลาง 16-30, ขวา 31-45)
+        */}
+        {isSingleColumn ? (
+          <div className="flex justify-center w-full items-start shrink-0 mb-1">
+            {renderTable(1, 15, 0, true)}
+          </div>
+        ) : (
+          <div className="flex gap-2 w-full items-start shrink-0 mb-1">
+            {tablesConfig.map((cfg, idx) => renderTable(cfg.start, cfg.end, idx, false))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -403,12 +432,14 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
                 กระดาษคำตอบ: {exam.title}
               </h2>
               <span className="hidden sm:inline-flex px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold">
-                A4 แนวนอน • 2 ชุด/แผ่น (3 ตาราง: 1-15, 16-30, 31-45)
+                {exam.questionCount <= 15
+                  ? 'กระดาษคำตอบฝนวงกลม 15 ข้อ (ตรงกลางแผ่น)'
+                  : 'A4 แนวนอน • ฝนวงกลม 2 ชุด/แผ่น (3 คอลัมน์: 1-15, 16-30, 31-45)'}
               </span>
             </div>
             <p className="text-[11px] text-slate-400 truncate">
               {exam.gradeLevel ? `${exam.gradeLevel} • ` : ''}
-              {exam.questionCount} ข้อ (4 ตัวเลือก ก,ข,ค,ง) • ช่องสี่เหลี่ยมจัตุรัสสวยงาม ชัดเจน
+              {exam.questionCount} ข้อ (ฝนวงกลม 4 ตัวเลือก ก,ข,ค,ง) • รองรับดินสอ ปากกา และลิควิดลบคำผิด
             </p>
           </div>
         </div>

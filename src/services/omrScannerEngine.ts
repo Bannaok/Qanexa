@@ -21,6 +21,7 @@ export interface ScanAnalysisResult {
   isDeSkewed?: boolean;
   detectedQrPayload?: string;
   detectedExamId?: string;
+  detectedExamTitle?: string;
 }
 
 export interface Point {
@@ -760,138 +761,94 @@ export const omrScannerEngine = {
       };
 
       /**
-       * Highly optimized Cross-Mark (กากบาท X) and Bubble Analyzer.
-       * Supports both Pencil (ดินสอ 2B/HB graphite) and Pen (ปากกาน้ำเงิน/ดำ/แดง/เจล).
+       * Highly optimized Circular Bubble OMR Analyzer (กระดาษคำตอบฝนวงกลม).
+       * Supports:
+       * - Shading with pencil (ดินสอ 2B/HB graphite)
+       * - Shading with pen (ปากกาน้ำเงิน/ดำ/แดง/เจล)
+       * - Liquid paper (น้ำยาลบคำผิด / ลิควิด): Liquid paper is highly reflective white, so erased marks have ~0 darkness
+       * - Double-mark detection: if 2 choices are shaded, both will be flagged and marked invalid/wrong (ถือว่าผิด)
        */
-      const sampleSquareBoxMetrics = (
+      const sampleCircularBubbleMetrics = (
         centerX: number,
         centerY: number,
-        boxRadius: number
+        bubbleRadius: number
       ): {
         score: number;
         isMarked: boolean;
-        isXMark: boolean;
-        isFlexibleStroke: boolean;
+        fillRatio: number;
         meanDarkness: number;
+        maxLocalDark: number;
       } => {
         let darkSum = 0;
         let points = 0;
-        let strokePoints = 0;
+        let darkPoints = 0;
         let maxLocalDark = 0;
 
-        let mainDiagDark = 0; // Top-Left to Bottom-Right (x ≈ y)
-        let antiDiagDark = 0; // Top-Right to Bottom-Left (x ≈ -y)
-        let centerInk = 0;    // Ink right at the cross intersection
-        let quad1Dark = 0;    // Top-Left
-        let quad2Dark = 0;    // Top-Right
-        let quad3Dark = 0;    // Bottom-Left
-        let quad4Dark = 0;    // Bottom-Right
+        // Sample strictly inside 0.72 * bubbleRadius to avoid outer printed circle outline
+        const innerRadius = Math.max(3, Math.floor(bubbleRadius * 0.72));
+        const innerRadiusSq = innerRadius * innerRadius;
 
-        // Sample inside 0.76 * boxRadius to strictly ignore outer printed border
-        const innerHalf = Math.max(3, Math.floor(boxRadius * 0.76));
+        for (let dy = -innerRadius; dy <= innerRadius; dy += 2) {
+          for (let dx = -innerRadius; dx <= innerRadius; dx += 2) {
+            if (dx * dx + dy * dy <= innerRadiusSq) {
+              const px = Math.floor(centerX + dx);
+              const py = Math.floor(centerY + dy);
+              if (px >= 0 && px < targetWidth && py >= 0 && py < targetHeight) {
+                const idx = (py * targetWidth + px) * 4;
+                const r = data[idx];
+                const g = data[idx + 1];
+                const b = data[idx + 2];
+                const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-        for (let dy = -innerHalf; dy <= innerHalf; dy += 2) {
-          for (let dx = -innerHalf; dx <= innerHalf; dx += 2) {
-            const px = Math.floor(centerX + dx);
-            const py = Math.floor(centerY + dy);
-            if (px >= 0 && px < targetWidth && py >= 0 && py < targetHeight) {
-              const idx = (py * targetWidth + px) * 4;
-              const r = data[idx];
-              const g = data[idx + 1];
-              const b = data[idx + 2];
-              const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                // Relative darkness vs paper background
+                const lumDarkness = Math.max(0, (avgPaperLuminance - lum) / avgPaperLuminance);
 
-              // Luminance darkness (for pencil & black ink)
-              const lumDarkness = Math.max(0, (avgPaperLuminance - lum) / avgPaperLuminance);
+                // Chromatic ink absorption (blue pen absorbs red, etc.)
+                const redAbsorption = Math.max(0, (avgPaperR - r) / 255);
+                const greenAbsorption = Math.max(0, (avgPaperG - g) / 255);
+                const blueAbsorption = Math.max(0, (avgPaperB - b) / 255);
+                const colorAbsorption = Math.max(redAbsorption * 1.25, greenAbsorption * 1.1, blueAbsorption);
 
-              // Chromatic ink absorption (for blue pen, red pen, colored gel pens)
-              const redAbsorption = Math.max(0, (avgPaperR - r) / 255);
-              const greenAbsorption = Math.max(0, (avgPaperG - g) / 255);
-              const blueAbsorption = Math.max(0, (avgPaperB - b) / 255);
-              const colorAbsorption = Math.max(redAbsorption * 1.25, greenAbsorption * 1.1, blueAbsorption);
+                const effectiveDarkness = Math.max(lumDarkness, colorAbsorption);
 
-              // Effective ink contrast: catches both pencil (gray) and pen ink (blue/black/red)
-              const effectiveDarkness = Math.max(lumDarkness, colorAbsorption);
+                darkSum += effectiveDarkness;
+                points++;
 
-              darkSum += effectiveDarkness;
-              points++;
-
-              // Pencil threshold (> 0.14) & Pen threshold:
-              // Extremely sensitive to pencil graphite strokes without picking up white paper grain
-              if (effectiveDarkness > 0.14) {
-                strokePoints++;
-                if (effectiveDarkness > maxLocalDark) {
-                  maxLocalDark = effectiveDarkness;
+                if (effectiveDarkness > 0.15) {
+                  darkPoints++;
+                  if (effectiveDarkness > maxLocalDark) {
+                    maxLocalDark = effectiveDarkness;
+                  }
                 }
-
-                // Check intersection at center
-                if (Math.abs(dx) <= 2.5 && Math.abs(dy) <= 2.5) {
-                  centerInk++;
-                }
-
-                // Main diagonal (Top-Left to Bottom-Right)
-                if (Math.abs(dx - dy) <= 3.0) mainDiagDark++;
-                // Anti diagonal (Top-Right to Bottom-Left)
-                if (Math.abs(dx + dy) <= 3.0) antiDiagDark++;
-
-                // Quadrants
-                if (dx < 0 && dy < 0) quad1Dark++;
-                else if (dx > 0 && dy < 0) quad2Dark++;
-                else if (dx < 0 && dy > 0) quad3Dark++;
-                else if (dx > 0 && dy > 0) quad4Dark++;
               }
             }
           }
         }
 
         if (points === 0) {
-          return { score: 0, isMarked: false, isXMark: false, isFlexibleStroke: false, meanDarkness: 0 };
+          return { score: 0, isMarked: false, fillRatio: 0, meanDarkness: 0, maxLocalDark: 0 };
         }
 
         const meanDarkness = darkSum / points;
-        const strokeRatio = strokePoints / points;
+        const fillRatio = darkPoints / points;
 
-        let quadrantHits = 0;
-        if (quad1Dark >= 1) quadrantHits++;
-        if (quad2Dark >= 1) quadrantHits++;
-        if (quad3Dark >= 1) quadrantHits++;
-        if (quad4Dark >= 1) quadrantHits++;
-
-        // 1. True Cross Mark (กากบาท X):
-        // Two intersecting diagonal strokes or stroke covering at least 3 quadrants
-        const isXMark =
-          (mainDiagDark >= 2 && antiDiagDark >= 2) ||
-          (quadrantHits >= 3 && strokeRatio >= 0.07) ||
-          (centerInk >= 1 && (mainDiagDark >= 2 || antiDiagDark >= 2) && strokeRatio >= 0.06);
-
-        // 2. Flexible stroke (ขีดเฉียง / กาถูก ✓ / ขีดทับช่อง):
-        const isFlexibleStroke =
-          strokeRatio >= 0.05 &&
-          (mainDiagDark >= 2 || antiDiagDark >= 2 || quadrantHits >= 2 || maxLocalDark >= 0.32);
-
-        // Score formulation
-        let score = 0;
-        if (isXMark) {
-          score = Math.max(0.75, strokeRatio * 2.6 + maxLocalDark * 0.25);
-        } else if (isFlexibleStroke) {
-          score = Math.max(0.52, strokeRatio * 2.3 + maxLocalDark * 0.2);
-        } else if (meanDarkness > 0.24) {
-          // Shaded / bubbled
-          score = Math.max(0.68, meanDarkness * 2.2);
-        } else if (strokeRatio >= 0.05) {
-          score = strokeRatio * 2.2;
-        } else {
-          score = meanDarkness;
+        // Score formula:
+        // Heavily shaded circle (pencil or pen): fillRatio >= 0.28, meanDarkness >= 0.20 -> score >= 0.50
+        // Erased with liquid paper (ลิควิด): lum is high white, effectiveDarkness < 0.05 -> score < 0.08
+        // Blank untouched: score < 0.08
+        let score = fillRatio * 0.60 + meanDarkness * 0.40;
+        if (fillRatio >= 0.28 && meanDarkness >= 0.20) {
+          score = Math.min(1.0, score + 0.20);
         }
 
-        const isMarked = isXMark || isFlexibleStroke || score >= 0.24;
+        const isMarked = score >= sensitivity || (fillRatio >= 0.22 && meanDarkness >= 0.16);
 
         return {
           score,
           isMarked,
-          isXMark,
-          isFlexibleStroke,
+          fillRatio,
           meanDarkness,
+          maxLocalDark,
         };
       };
 
@@ -905,7 +862,7 @@ export const omrScannerEngine = {
           for (let dx = -searchRadius; dx <= searchRadius; dx += 2) {
             const curX = expectedX + dx;
             const curY = expectedY + dy;
-            const res = sampleSquareBoxMetrics(curX, curY, 4);
+            const res = sampleCircularBubbleMetrics(curX, curY, 4);
             if (res.score > maxDark) {
               maxDark = res.score;
               bestX = curX;
@@ -937,14 +894,12 @@ export const omrScannerEngine = {
       }
 
       const totalQ = exam.questionCount;
-      // Strictly 4 choices (ก, ข, ค, ง)
+      const isSingleColumn = totalQ <= 15;
       const choiceCount = 4;
 
-      // 3-Table Layout coordinates matching AnswerSheetView:
-      // Table 0 (Left): Questions 1 - 15
-      // Table 1 (Center): Questions 16 - 30
-      // Table 2 (Right): Questions 31 - 45
-      // Rows start below student info header and end leaving bottom breathing space
+      // Layout coordinates matching AnswerSheetView:
+      // If totalQ <= 15: Single centered table (15 ข้อ อยู่ตรงกลางเลย)
+      // If totalQ > 15: 3 distinct tables (ซ้าย 1-15, กลาง 16-30, ขวา 31-45)
       const vRowsStart = 0.32;
       const vRowsEnd = 0.93;
       const vRowHeight = (vRowsEnd - vRowsStart) / 15;
@@ -953,31 +908,42 @@ export const omrScannerEngine = {
       let correctCount = 0;
 
       for (let q = 1; q <= totalQ; q++) {
-        const tableIdx = Math.min(2, Math.floor((q - 1) / 15));
-        const rowIndex = (q - 1) % 15;
+        let uChoiceAreaStart: number;
+        let uChoiceStep: number;
+        let vCenter: number;
 
-        // Table horizontal coordinates: 3 tables evenly spaced
-        const uTableStart = 0.035 + tableIdx * 0.32;
-        const tableWidth = 0.29;
-        // Inside table: Number column is 22%, 4 Choice columns take 78%
-        const uChoiceAreaStart = uTableStart + tableWidth * 0.22;
-        const uChoiceStep = (tableWidth * 0.78) / choiceCount;
+        if (isSingleColumn) {
+          // Centered table for 15 questions
+          const tableWidth = 0.44;
+          const uTableStart = (1.0 - tableWidth) / 2; // centered ~0.28
+          uChoiceAreaStart = uTableStart + tableWidth * 0.22;
+          uChoiceStep = (tableWidth * 0.78) / choiceCount;
+          const rowIndex = q - 1;
+          vCenter = vRowsStart + (rowIndex + 0.5) * vRowHeight;
+        } else {
+          // 3-Table Layout
+          const tableIdx = Math.min(2, Math.floor((q - 1) / 15));
+          const rowIndex = (q - 1) % 15;
+          const uTableStart = 0.035 + tableIdx * 0.32;
+          const tableWidth = 0.29;
+          uChoiceAreaStart = uTableStart + tableWidth * 0.22;
+          uChoiceStep = (tableWidth * 0.78) / choiceCount;
+          vCenter = vRowsStart + (rowIndex + 0.5) * vRowHeight;
+        }
 
-        const vCenter = vRowsStart + (rowIndex + 0.5) * vRowHeight;
-
-        // Box size in pixels (virtually 1:1 square)
+        // Box size in pixels (circular bubble radius)
         const mappedP1 = mapUV(uChoiceAreaStart, vCenter);
         const mappedP2 = mapUV(uChoiceAreaStart + uChoiceStep, vCenter);
         const stepPx = Math.hypot(mappedP2.x - mappedP1.x, mappedP2.y - mappedP1.y);
-        const boxRadius = Math.max(7, Math.min(20, stepPx * 0.44));
+        const bubbleRadius = Math.max(7, Math.min(20, stepPx * 0.42));
 
-        // Sample each square choice box
+        // Sample each circular choice bubble
         const choiceScores: {
           choiceIndex: number;
           score: number;
           isMarked: boolean;
-          isXMark: boolean;
-          isFlexibleStroke: boolean;
+          fillRatio: number;
+          meanDarkness: number;
           x: number;
           y: number;
         }[] = [];
@@ -986,14 +952,14 @@ export const omrScannerEngine = {
           const uBubble = uChoiceAreaStart + (c + 0.5) * uChoiceStep;
           const mappedPoint = mapUV(uBubble, vCenter);
           const refinedPoint = findLocalDarkCentroid(mappedPoint.x, mappedPoint.y, 5);
-          const metrics = sampleSquareBoxMetrics(refinedPoint.x, refinedPoint.y, boxRadius);
+          const metrics = sampleCircularBubbleMetrics(refinedPoint.x, refinedPoint.y, bubbleRadius);
 
           choiceScores.push({
             choiceIndex: c,
             score: metrics.score,
             isMarked: metrics.isMarked,
-            isXMark: metrics.isXMark,
-            isFlexibleStroke: metrics.isFlexibleStroke,
+            fillRatio: metrics.fillRatio,
+            meanDarkness: metrics.meanDarkness,
             x: refinedPoint.x,
             y: refinedPoint.y,
           });
@@ -1002,53 +968,70 @@ export const omrScannerEngine = {
         // Sort descending by score
         choiceScores.sort((a, b) => b.score - a.score);
         const darkest = choiceScores[0];
-        const secondDarkest = choiceScores[1] || { score: 0 };
+        const secondDarkest = choiceScores[1] || { score: 0, isMarked: false, fillRatio: 0, meanDarkness: 0 };
 
         let selectedChoice: number | null = null;
         let isMultipleMarked = false;
 
-        // Enhanced candidate criteria:
-        // Catches pencil, pen, and X-marks even with low contrast or light pressure
-        const isCandidate =
-          darkest.isXMark ||
-          darkest.isFlexibleStroke ||
-          darkest.score >= sensitivity ||
-          (darkest.score >= 0.20 && darkest.score >= secondDarkest.score * 1.4);
+        // Is the darkest option marked?
+        if (darkest.isMarked) {
+          // Check if secondDarkest is ALSO marked (Double Mark: "หากฝนทั้ง 2 ตัวเลือกก็คือว่าผิด")
+          // If a student erased with liquid paper, the erased one will have score < 0.10 and isMarked = false.
+          // But if two options both have real dark shading:
+          const isSecondMarkedDouble =
+            secondDarkest.isMarked &&
+            secondDarkest.score >= 0.20 &&
+            (secondDarkest.score >= darkest.score * 0.65 || secondDarkest.fillRatio >= 0.20);
 
-        if (isCandidate) {
-          if (
-            secondDarkest.score >= sensitivity &&
-            secondDarkest.score > darkest.score * 0.80 &&
-            (secondDarkest.isXMark || secondDarkest.isFlexibleStroke)
-          ) {
+          if (isSecondMarkedDouble) {
             isMultipleMarked = true;
-            selectedChoice = null;
+            selectedChoice = null; // ถือว่าผิด
           } else {
+            // One clear choice is shaded dark
             selectedChoice = darkest.choiceIndex;
           }
         }
 
         const correctChoice = exam.answerKey[q] !== undefined ? exam.answerKey[q] : 0;
-        const isCorrect = selectedChoice !== null && selectedChoice === correctChoice;
+        const isCorrect = !isMultipleMarked && selectedChoice !== null && selectedChoice === correctChoice;
         if (isCorrect) correctCount++;
 
-        // Draw visual annotations as SQUARE BOXES on annotCtx
+        // Draw visual annotations as CIRCULAR BUBBLES on annotCtx
         for (let c = 0; c < choiceCount; c++) {
           const item = choiceScores.find((cs) => cs.choiceIndex === c)!;
           const isSelected = selectedChoice === c;
           const isKey = correctChoice === c;
+          const isMarkedInDouble = isMultipleMarked && (darkest.choiceIndex === c || secondDarkest.choiceIndex === c);
 
-          const boxSize = (boxRadius + 2) * 2;
-          const halfSize = boxSize / 2;
+          const r = bubbleRadius + 2;
 
-          if (isSelected) {
+          if (isMarkedInDouble) {
+            // Amber / Red for double-marked bubbles (ผิดเนื่องจากฝนซ้ำ)
+            annotCtx.strokeStyle = '#EF4444';
+            annotCtx.lineWidth = 3.5;
+            annotCtx.fillStyle = 'rgba(239, 68, 68, 0.30)';
+            annotCtx.beginPath();
+            annotCtx.arc(item.x, item.y, r, 0, Math.PI * 2);
+            annotCtx.fill();
+            annotCtx.stroke();
+
+            // Draw X symbol in red
+            annotCtx.strokeStyle = '#B91C1C';
+            annotCtx.lineWidth = 2.5;
+            annotCtx.beginPath();
+            annotCtx.moveTo(item.x - r * 0.5, item.y - r * 0.5);
+            annotCtx.lineTo(item.x + r * 0.5, item.y + r * 0.5);
+            annotCtx.moveTo(item.x + r * 0.5, item.y - r * 0.5);
+            annotCtx.lineTo(item.x - r * 0.5, item.y + r * 0.5);
+            annotCtx.stroke();
+          } else if (isSelected) {
             if (isCorrect) {
-              // Solid Emerald Square for correct answer
+              // Solid Emerald Circle for correct answer
               annotCtx.strokeStyle = '#10B981';
               annotCtx.lineWidth = 3.5;
               annotCtx.fillStyle = 'rgba(16, 185, 129, 0.25)';
               annotCtx.beginPath();
-              annotCtx.rect(item.x - halfSize, item.y - halfSize, boxSize, boxSize);
+              annotCtx.arc(item.x, item.y, r, 0, Math.PI * 2);
               annotCtx.fill();
               annotCtx.stroke();
 
@@ -1056,17 +1039,17 @@ export const omrScannerEngine = {
               annotCtx.strokeStyle = '#059669';
               annotCtx.lineWidth = 2.5;
               annotCtx.beginPath();
-              annotCtx.moveTo(item.x - halfSize * 0.5, item.y);
-              annotCtx.lineTo(item.x - halfSize * 0.1, item.y + halfSize * 0.5);
-              annotCtx.lineTo(item.x + halfSize * 0.6, item.y - halfSize * 0.5);
+              annotCtx.moveTo(item.x - r * 0.5, item.y);
+              annotCtx.lineTo(item.x - r * 0.1, item.y + r * 0.5);
+              annotCtx.lineTo(item.x + r * 0.6, item.y - r * 0.5);
               annotCtx.stroke();
             } else {
-              // Rose Red Square for incorrect answer
+              // Rose Red Circle for incorrect answer
               annotCtx.strokeStyle = '#F43F5E';
               annotCtx.lineWidth = 3.5;
               annotCtx.fillStyle = 'rgba(244, 63, 94, 0.25)';
               annotCtx.beginPath();
-              annotCtx.rect(item.x - halfSize, item.y - halfSize, boxSize, boxSize);
+              annotCtx.arc(item.x, item.y, r, 0, Math.PI * 2);
               annotCtx.fill();
               annotCtx.stroke();
 
@@ -1074,19 +1057,19 @@ export const omrScannerEngine = {
               annotCtx.strokeStyle = '#E11D48';
               annotCtx.lineWidth = 2.5;
               annotCtx.beginPath();
-              annotCtx.moveTo(item.x - halfSize * 0.5, item.y - halfSize * 0.5);
-              annotCtx.lineTo(item.x + halfSize * 0.5, item.y + halfSize * 0.5);
-              annotCtx.moveTo(item.x + halfSize * 0.5, item.y - halfSize * 0.5);
-              annotCtx.lineTo(item.x - halfSize * 0.5, item.y + halfSize * 0.5);
+              annotCtx.moveTo(item.x - r * 0.5, item.y - r * 0.5);
+              annotCtx.lineTo(item.x + r * 0.5, item.y + r * 0.5);
+              annotCtx.moveTo(item.x + r * 0.5, item.y - r * 0.5);
+              annotCtx.lineTo(item.x - r * 0.5, item.y + r * 0.5);
               annotCtx.stroke();
             }
           } else if (isKey && !isCorrect) {
-            // Amber / Indigo outline to show what the correct answer was
+            // Indigo dashed outline to show what the correct answer was
             annotCtx.strokeStyle = '#4F46E5';
-            annotCtx.lineWidth = 2;
-            annotCtx.setLineDash([3, 2]);
+            annotCtx.lineWidth = 2.5;
+            annotCtx.setLineDash([4, 3]);
             annotCtx.beginPath();
-            annotCtx.rect(item.x - halfSize, item.y - halfSize, boxSize, boxSize);
+            annotCtx.arc(item.x, item.y, r, 0, Math.PI * 2);
             annotCtx.stroke();
             annotCtx.setLineDash([]);
           }
@@ -1098,6 +1081,7 @@ export const omrScannerEngine = {
           correctChoice,
           isCorrect,
           confidence: darkest.score,
+          isMultipleMarked,
         });
       }
 
