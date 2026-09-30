@@ -740,15 +740,23 @@ export const omrScannerEngine = {
         }
         const padX = (w - boxW) / 2;
         const padY = (h - boxH) / 2;
+
+        // Position quad at fiducial centers:
+        // Sheet has width 1123, height 1588. Fiducials at X=58, Y=53 and X=1065, Y=1535
+        const fidRelX1 = 58 / 1123;
+        const fidRelY1 = 53 / 1588;
+        const fidRelX2 = 1065 / 1123;
+        const fidRelY2 = 1535 / 1588;
+
         quad = {
-          topLeft: { x: padX, y: padY },
-          topRight: { x: padX + boxW, y: padY },
-          bottomRight: { x: padX + boxW, y: padY + boxH },
-          bottomLeft: { x: padX, y: padY + boxH },
+          topLeft: { x: padX + boxW * fidRelX1, y: padY + boxH * fidRelY1 },
+          topRight: { x: padX + boxW * fidRelX2, y: padY + boxH * fidRelY1 },
+          bottomRight: { x: padX + boxW * fidRelX2, y: padY + boxH * fidRelY2 },
+          bottomLeft: { x: padX + boxW * fidRelX1, y: padY + boxH * fidRelY2 },
         };
       }
 
-      // Bilinear coordinate mapping (u = 0..1 horizontal, v = 0..1 vertical)
+      // Bilinear coordinate mapping (u = 0..1 horizontal between fiducials, v = 0..1 vertical between fiducials)
       const mapUV = (u: number, v: number): Point => {
         const topX = quad.topLeft.x + u * (quad.topRight.x - quad.topLeft.x);
         const topY = quad.topLeft.y + u * (quad.topRight.y - quad.topLeft.y);
@@ -761,7 +769,7 @@ export const omrScannerEngine = {
       };
 
       /**
-       * Highly optimized Circular Bubble OMR Analyzer (กระดาษคำตอบฝนวงกลม).
+       * Highly optimized Circular Bubble OMR Analyzer (กระดาษคำตอบฝนวงกลมขนาดเล็ก).
        * Supports:
        * - Shading with pencil (ดินสอ 2B/HB graphite)
        * - Shading with pen (ปากกาน้ำเงิน/ดำ/แดง/เจล)
@@ -784,12 +792,12 @@ export const omrScannerEngine = {
         let darkPoints = 0;
         let maxLocalDark = 0;
 
-        // Sample strictly inside 0.72 * bubbleRadius to avoid outer printed circle outline
-        const innerRadius = Math.max(3, Math.floor(bubbleRadius * 0.72));
+        // Sample strictly inside 0.70 * bubbleRadius to avoid outer printed circle outline
+        const innerRadius = Math.max(3, Math.floor(bubbleRadius * 0.70));
         const innerRadiusSq = innerRadius * innerRadius;
 
-        for (let dy = -innerRadius; dy <= innerRadius; dy += 2) {
-          for (let dx = -innerRadius; dx <= innerRadius; dx += 2) {
+        for (let dy = -innerRadius; dy <= innerRadius; dy += 1) {
+          for (let dx = -innerRadius; dx <= innerRadius; dx += 1) {
             if (dx * dx + dy * dy <= innerRadiusSq) {
               const px = Math.floor(centerX + dx);
               const py = Math.floor(centerY + dy);
@@ -814,7 +822,7 @@ export const omrScannerEngine = {
                 darkSum += effectiveDarkness;
                 points++;
 
-                if (effectiveDarkness > 0.15) {
+                if (effectiveDarkness >= 0.16) {
                   darkPoints++;
                   if (effectiveDarkness > maxLocalDark) {
                     maxLocalDark = effectiveDarkness;
@@ -833,15 +841,15 @@ export const omrScannerEngine = {
         const fillRatio = darkPoints / points;
 
         // Score formula:
-        // Heavily shaded circle (pencil or pen): fillRatio >= 0.28, meanDarkness >= 0.20 -> score >= 0.50
+        // Heavily shaded small circle (pencil or pen): fillRatio >= 0.22, meanDarkness >= 0.16 -> score >= 0.45
         // Erased with liquid paper (ลิควิด): lum is high white, effectiveDarkness < 0.05 -> score < 0.08
         // Blank untouched: score < 0.08
-        let score = fillRatio * 0.60 + meanDarkness * 0.40;
-        if (fillRatio >= 0.28 && meanDarkness >= 0.20) {
-          score = Math.min(1.0, score + 0.20);
+        let score = fillRatio * 0.65 + meanDarkness * 0.35;
+        if (fillRatio >= 0.22 && meanDarkness >= 0.16) {
+          score = Math.min(1.0, score + 0.25);
         }
 
-        const isMarked = score >= sensitivity || (fillRatio >= 0.22 && meanDarkness >= 0.16);
+        const isMarked = score >= 0.20 || (fillRatio >= 0.18 && meanDarkness >= 0.15);
 
         return {
           score,
@@ -852,25 +860,43 @@ export const omrScannerEngine = {
         };
       };
 
-      // Centroid micro-search
+      // Centroid micro-search: Searches in a local window of +/- 6 px around the expected center
+      // If student shaded inside the small circle, it shifts center directly onto the ink cluster!
       const findLocalDarkCentroid = (expectedX: number, expectedY: number, searchRadius = 6): Point => {
-        let maxDark = -1;
-        let bestX = expectedX;
-        let bestY = expectedY;
+        let sumX = 0, sumY = 0, sumWeight = 0;
+        let maxWeight = 0;
 
         for (let dy = -searchRadius; dy <= searchRadius; dy += 2) {
           for (let dx = -searchRadius; dx <= searchRadius; dx += 2) {
-            const curX = expectedX + dx;
-            const curY = expectedY + dy;
-            const res = sampleCircularBubbleMetrics(curX, curY, 4);
-            if (res.score > maxDark) {
-              maxDark = res.score;
-              bestX = curX;
-              bestY = curY;
+            const curX = Math.floor(expectedX + dx);
+            const curY = Math.floor(expectedY + dy);
+            if (curX >= 0 && curX < targetWidth && curY >= 0 && curY < targetHeight) {
+              const idx = (curY * targetWidth + curX) * 4;
+              const r = data[idx];
+              const g = data[idx + 1];
+              const b = data[idx + 2];
+              const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+              const lumDark = Math.max(0, (avgPaperLuminance - lum) / avgPaperLuminance);
+              const colorDark = Math.max(
+                Math.max(0, (avgPaperR - r) / 255) * 1.25,
+                Math.max(0, (avgPaperG - g) / 255) * 1.1,
+                Math.max(0, (avgPaperB - b) / 255)
+              );
+              const eff = Math.max(lumDark, colorDark);
+              if (eff > 0.18) {
+                const weight = eff * eff;
+                sumX += curX * weight;
+                sumY += curY * weight;
+                sumWeight += weight;
+                if (eff > maxWeight) maxWeight = eff;
+              }
             }
           }
         }
-        return { x: bestX, y: bestY };
+        if (sumWeight > 0 && maxWeight > 0.22) {
+          return { x: sumX / sumWeight, y: sumY / sumWeight };
+        }
+        return { x: expectedX, y: expectedY };
       };
 
       // Annotation canvas layer
@@ -897,45 +923,46 @@ export const omrScannerEngine = {
       const isSingleColumn = totalQ <= 15;
       const choiceCount = 4;
 
-      // Layout coordinates matching AnswerSheetView:
-      // If totalQ <= 15: Single centered table (15 ข้อ อยู่ตรงกลางเลย)
-      // If totalQ > 15: 3 distinct tables (ซ้าย 1-15, กลาง 16-30, ขวา 31-45)
-      const vRowsStart = 0.32;
-      const vRowsEnd = 0.93;
-      const vRowHeight = (vRowsEnd - vRowsStart) / 15;
+      // Exact mathematical coordinates aligned with pdfGenerator & AnswerSheetView
+      // Vertical mapping: row 0 starts at v = 0.26856, row step is 0.047233
+      const vStart = 0.26856;
+      const vStep = 0.047233;
 
       const answers: QuestionAnswer[] = [];
       let correctCount = 0;
 
       for (let q = 1; q <= totalQ; q++) {
-        let uChoiceAreaStart: number;
-        let uChoiceStep: number;
+        let uChoiceCenter: (c: number) => number;
         let vCenter: number;
 
         if (isSingleColumn) {
           // Centered table for 15 questions
-          const tableWidth = 0.44;
-          const uTableStart = (1.0 - tableWidth) / 2; // centered ~0.28
-          uChoiceAreaStart = uTableStart + tableWidth * 0.22;
-          uChoiceStep = (tableWidth * 0.78) / choiceCount;
+          // tableWidth in u = 0.43694, u_start = 0.28153
+          // colWidth in u = 0.43694 / 5 = 0.087388
+          const uStart = 0.28153;
+          const colWidthU = 0.087388;
           const rowIndex = q - 1;
-          vCenter = vRowsStart + (rowIndex + 0.5) * vRowHeight;
+          vCenter = vStart + rowIndex * vStep;
+          uChoiceCenter = (c: number) => uStart + (c + 1.5) * colWidthU;
         } else {
           // 3-Table Layout
+          // Table 0 (Left: Q1-15): u_start = 0.0
+          // Table 1 (Center: Q16-30): u_start = 0.33863
+          // Table 2 (Right: Q31-45): u_start = 0.67726
+          // colWidth in u = 0.064548
           const tableIdx = Math.min(2, Math.floor((q - 1) / 15));
           const rowIndex = (q - 1) % 15;
-          const uTableStart = 0.035 + tableIdx * 0.32;
-          const tableWidth = 0.29;
-          uChoiceAreaStart = uTableStart + tableWidth * 0.22;
-          uChoiceStep = (tableWidth * 0.78) / choiceCount;
-          vCenter = vRowsStart + (rowIndex + 0.5) * vRowHeight;
+          const tableStarts = [0.0, 0.33863, 0.67726];
+          const uStart = tableStarts[tableIdx];
+          const colWidthU = 0.064548;
+          vCenter = vStart + rowIndex * vStep;
+          uChoiceCenter = (c: number) => uStart + (c + 1.5) * colWidthU;
         }
 
-        // Box size in pixels (circular bubble radius)
-        const mappedP1 = mapUV(uChoiceAreaStart, vCenter);
-        const mappedP2 = mapUV(uChoiceAreaStart + uChoiceStep, vCenter);
-        const stepPx = Math.hypot(mappedP2.x - mappedP1.x, mappedP2.y - mappedP1.y);
-        const bubbleRadius = Math.max(7, Math.min(20, stepPx * 0.42));
+        // Small compact circular bubble radius in pixels
+        const p1 = mapUV(uChoiceCenter(0) - 0.010, vCenter);
+        const p2 = mapUV(uChoiceCenter(0) + 0.010, vCenter);
+        const bubbleRadius = Math.max(5, Math.min(14, Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.5));
 
         // Sample each circular choice bubble
         const choiceScores: {
@@ -949,9 +976,9 @@ export const omrScannerEngine = {
         }[] = [];
 
         for (let c = 0; c < choiceCount; c++) {
-          const uBubble = uChoiceAreaStart + (c + 0.5) * uChoiceStep;
+          const uBubble = uChoiceCenter(c);
           const mappedPoint = mapUV(uBubble, vCenter);
-          const refinedPoint = findLocalDarkCentroid(mappedPoint.x, mappedPoint.y, 5);
+          const refinedPoint = findLocalDarkCentroid(mappedPoint.x, mappedPoint.y, 6);
           const metrics = sampleCircularBubbleMetrics(refinedPoint.x, refinedPoint.y, bubbleRadius);
 
           choiceScores.push({
@@ -980,8 +1007,8 @@ export const omrScannerEngine = {
           // But if two options both have real dark shading:
           const isSecondMarkedDouble =
             secondDarkest.isMarked &&
-            secondDarkest.score >= 0.20 &&
-            (secondDarkest.score >= darkest.score * 0.65 || secondDarkest.fillRatio >= 0.20);
+            secondDarkest.score >= 0.18 &&
+            (secondDarkest.score >= darkest.score * 0.55 || secondDarkest.fillRatio >= 0.18);
 
           if (isSecondMarkedDouble) {
             isMultipleMarked = true;

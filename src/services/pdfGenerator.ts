@@ -251,62 +251,57 @@ export const pdfGenerator = {
             { start: 31, end: 45 },
           ];
 
-      const gridStartY = padY + 285;
-      const totalGridW = headerBoxW;
-      const tableGap = 16;
-      const tableW = isSingleColumn
-        ? totalGridW * 0.46
-        : (totalGridW - tableGap * 2) / 3;
+      // Exact mathematical coordinates aligned with OMR Scanner Engine
+      const gridStartY = 370;
+      const headerH1 = 26;
+      const headerH2 = 20;
+      const totalHeaderH = headerH1 + headerH2; // 46
+      const rowH = 70;
+      const availableGridH = totalHeaderH + rowH * 15; // 46 + 1050 = 1096
 
-      // Leave comfortable breathing space at bottom
-      const gridEndY = height - padY - 75;
-      const availableGridH = gridEndY - gridStartY;
-      const headerH1 = 28;
-      const headerH2 = 22;
-      const totalHeaderH = headerH1 + headerH2;
-      const rowH = (availableGridH - totalHeaderH) / 15;
+      const tableW = isSingleColumn ? 440 : 325;
+      const tableGap = 16;
+      const fiducialStartX = 58;
 
       tablesConfig.forEach((cfg, tIdx) => {
         const colX = isSingleColumn
-          ? offsetX + padX + 50 + (totalGridW - tableW) / 2
-          : offsetX + padX + 50 + tIdx * (tableW + tableGap);
+          ? offsetX + fiducialStartX + (1007 - tableW) / 2
+          : offsetX + fiducialStartX + tIdx * (tableW + tableGap);
 
         // Outer border for each table (กรอบชัดเจนในการแบ่ง)
         ctx.strokeStyle = '#020617';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2.5;
         ctx.strokeRect(colX, gridStartY, tableW, availableGridH);
 
         // Header Background
         ctx.fillStyle = '#ffe4e6'; // soft rose
         ctx.fillRect(colX, gridStartY, tableW, totalHeaderH);
 
-        // Dividing lines in header
+        // Dividing lines in header: 5 Equal Columns (Number + 4 Choices)
+        const colWidth = tableW / 5;
         ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1.5;
-
-        const numColW = tableW * 0.22;
-        const choiceColW = (tableW - numColW) / choiceLabels.length;
+        ctx.lineWidth = 1.2;
 
         // "ข้อ" cell (spans both header rows)
-        ctx.strokeRect(colX, gridStartY, numColW, totalHeaderH);
+        ctx.strokeRect(colX, gridStartY, colWidth, totalHeaderH);
         ctx.fillStyle = '#0f172a';
-        ctx.font = 'bold 18px "Sarabun", sans-serif';
+        ctx.font = 'bold 16px "Sarabun", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('ข้อ', colX + numColW / 2, gridStartY + totalHeaderH / 2 + 6);
+        ctx.fillText('ข้อ', colX + colWidth / 2, gridStartY + totalHeaderH / 2 + 5);
 
         // Header rows: Row 1 (ก ข ค ง), Row 2 (A B C D)
         choiceLabels.forEach((lbl, cIdx) => {
-          const cx = colX + numColW + cIdx * choiceColW;
-          ctx.strokeRect(cx, gridStartY, choiceColW, headerH1);
-          ctx.strokeRect(cx, gridStartY + headerH1, choiceColW, headerH2);
+          const cx = colX + (cIdx + 1) * colWidth;
+          ctx.strokeRect(cx, gridStartY, colWidth, headerH1);
+          ctx.strokeRect(cx, gridStartY + headerH1, colWidth, headerH2);
 
           ctx.fillStyle = '#0f172a';
-          ctx.font = 'bold 16px "Sarabun", sans-serif';
-          ctx.fillText(lbl, cx + choiceColW / 2, gridStartY + headerH1 - 8);
+          ctx.font = 'bold 15px "Sarabun", sans-serif';
+          ctx.fillText(lbl, cx + colWidth / 2, gridStartY + headerH1 - 7);
 
-          ctx.fillStyle = '#334155';
-          ctx.font = 'bold 13px monospace';
-          ctx.fillText(latinLabels[cIdx], cx + choiceColW / 2, gridStartY + totalHeaderH - 6);
+          ctx.fillStyle = '#475569';
+          ctx.font = 'bold 12px monospace';
+          ctx.fillText(latinLabels[cIdx], cx + colWidth / 2, gridStartY + totalHeaderH - 5);
         });
 
         // 15 Question Rows (Table grid cells share borders, adjacent)
@@ -317,44 +312,45 @@ export const pdfGenerator = {
 
           // Number cell: shaded, left aligned to table border
           ctx.fillStyle = isActive ? '#fff1f2' : '#f8fafc';
-          ctx.fillRect(colX, ry, numColW, rowH);
+          ctx.fillRect(colX, ry, colWidth, rowH);
           ctx.strokeStyle = '#0f172a';
           ctx.lineWidth = 1;
-          ctx.strokeRect(colX, ry, numColW, rowH);
+          ctx.strokeRect(colX, ry, colWidth, rowH);
 
           if (isActive) {
             ctx.fillStyle = '#0f172a';
-            ctx.font = 'bold 18px monospace';
+            ctx.font = 'bold 17px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText(`${qNum}`, colX + numColW / 2, ry + rowH / 2 + 6);
+            ctx.fillText(`${qNum}`, colX + colWidth / 2, ry + rowH / 2 + 6);
           }
 
-          // Choice cells with Circular OMR Bubbles (ฝนวงกลม)
+          // Choice cells with Small Compact Circular OMR Bubbles (วงกลมขนาดเล็ก กะทัดรัด ฝนง่าย)
           choiceLabels.forEach((lbl, cIdx) => {
-            const cx = colX + numColW + cIdx * choiceColW;
+            const cx = colX + (cIdx + 1) * colWidth;
             ctx.fillStyle = '#ffffff';
-            ctx.fillRect(cx, ry, choiceColW, rowH);
+            ctx.fillRect(cx, ry, colWidth, rowH);
             ctx.strokeStyle = '#0f172a';
             ctx.lineWidth = 1;
-            ctx.strokeRect(cx, ry, choiceColW, rowH);
+            ctx.strokeRect(cx, ry, colWidth, rowH);
 
             if (isActive) {
-              const bubbleCx = cx + choiceColW / 2;
+              const bubbleCx = cx + colWidth / 2;
               const bubbleCy = ry + rowH / 2;
-              const bubbleR = Math.min(choiceColW, rowH) * 0.36;
+              // Small compact bubble radius: 10px (diameter 20px ~ 3.6mm on paper)
+              const bubbleR = 10;
 
               // Draw circular bubble border
               ctx.strokeStyle = '#0f172a';
-              ctx.lineWidth = 1.8;
+              ctx.lineWidth = 1.4;
               ctx.beginPath();
               ctx.arc(bubbleCx, bubbleCy, bubbleR, 0, Math.PI * 2);
               ctx.stroke();
 
-              // Draw choice letter inside circular bubble
-              ctx.fillStyle = '#1e293b';
-              ctx.font = 'bold 14px "Sarabun", sans-serif';
+              // Draw choice letter inside small circular bubble
+              ctx.fillStyle = '#334155';
+              ctx.font = 'bold 10px "Sarabun", sans-serif';
               ctx.textAlign = 'center';
-              ctx.fillText(lbl, bubbleCx, bubbleCy + 5);
+              ctx.fillText(lbl, bubbleCx, bubbleCy + 3.5);
             }
           });
         }

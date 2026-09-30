@@ -77,18 +77,18 @@ const SingleAnswerSheetHalf: React.FC<{
       >
         <table className="w-full border-collapse border-slate-950 text-center select-none table-fixed">
           <thead>
-            {/* Header Row 1: ก ข ค ง */}
+            {/* Header Row 1: ก ข ค ง (5 Equal Columns: Number 20%, Choices 20% each) */}
             <tr className="bg-rose-100/90 text-slate-950 font-black text-xs border-b border-slate-900">
               <th
                 rowSpan={2}
-                className="border-r border-slate-900 w-[22%] py-0.5 text-center font-black text-xs font-mono"
+                className="border-r border-slate-900 w-[20%] py-0.5 text-center font-black text-xs font-mono"
               >
                 ข้อ
               </th>
               {thaiLabels.map((lbl) => (
                 <th
                   key={lbl}
-                  className="border-r border-slate-900 last:border-r-0 py-0.5 text-center font-black text-xs"
+                  className="border-r border-slate-900 last:border-r-0 w-[20%] py-0.5 text-center font-black text-xs"
                 >
                   {lbl}
                 </th>
@@ -99,7 +99,7 @@ const SingleAnswerSheetHalf: React.FC<{
               {latinLabels.map((lbl) => (
                 <th
                   key={lbl}
-                  className="border-r border-slate-900 last:border-r-0 py-0 text-center font-mono leading-tight"
+                  className="border-r border-slate-900 last:border-r-0 w-[20%] py-0 text-center font-mono leading-tight"
                 >
                   {lbl}
                 </th>
@@ -120,7 +120,7 @@ const SingleAnswerSheetHalf: React.FC<{
                     {isActive ? qNum : ''}
                   </td>
 
-                  {/* 4 Circular Choice Bubbles (วงกลมสำหรับฝน) */}
+                  {/* 4 Small Compact Circular Choice Bubbles (วงกลมขนาดเล็ก กะทัดรัด ฝนง่าย) */}
                   {Array.from({ length: choiceCount }, (_, cIdx) => (
                     <td
                       key={cIdx}
@@ -129,7 +129,7 @@ const SingleAnswerSheetHalf: React.FC<{
                       }`}
                     >
                       {isActive ? (
-                        <div className="w-5.5 h-5.5 rounded-full border-2 border-slate-900 bg-white flex items-center justify-center font-bold text-slate-800 text-[10px] select-none mx-auto">
+                        <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-[1.3px] border-slate-900 bg-white flex items-center justify-center font-bold text-slate-700 text-[8px] sm:text-[9px] select-none mx-auto shadow-2xs">
                           {thaiLabels[cIdx]}
                         </div>
                       ) : null}
@@ -398,16 +398,17 @@ export const AnswerSheetView: React.FC<AnswerSheetViewProps> = ({
   };
 
   const handleDownloadPDF = async () => {
-    if (!printRef.current) return;
     try {
       setIsGeneratingPdf(true);
-      await pdfGenerator.downloadPDFFromElement(printRef.current, exam);
-      success('ดาวน์โหลด PDF สำเร็จ', 'ไฟล์กระดาษคำตอบ A4 แนวนอน (2 ชุด/แผ่น) พร้อมพิมพ์เรียบร้อย');
+      await pdfGenerator.downloadPDF(exam, undefined, qrCodeUrl);
+      success('ดาวน์โหลด PDF สำเร็จ', 'ไฟล์กระดาษคำตอบ A4 แนวนอน (ฝนวงกลมกะทัดรัด 2 ชุด/แผ่น) พร้อมพิมพ์เรียบร้อย');
     } catch (err) {
-      console.warn('DOM PDF failed, falling back to direct generator', err);
+      console.warn('Direct PDF failed, falling back to element capture', err);
       try {
-        await pdfGenerator.downloadPDF(exam, undefined, qrCodeUrl);
-        success('ดาวน์โหลด PDF สำเร็จ', 'ไฟล์กระดาษคำตอบ A4 แนวนอน (2 ชุด/แผ่น) พร้อมพิมพ์เรียบร้อย');
+        if (printRef.current) {
+          await pdfGenerator.downloadPDFFromElement(printRef.current, exam);
+          success('ดาวน์โหลด PDF สำเร็จ', 'ไฟล์กระดาษคำตอบ A4 แนวนอน พร้อมพิมพ์เรียบร้อย');
+        }
       } catch (fallbackErr: any) {
         console.error('PDF generation error', fallbackErr);
         error('ดาวน์โหลด PDF ไม่สำเร็จ', 'กรุณาลองกดปุ่ม "พิมพ์กระดาษคำตอบ" แล้วเลือก Save as PDF แทน');
