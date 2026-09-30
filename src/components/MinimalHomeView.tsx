@@ -68,11 +68,11 @@ export const MinimalHomeView: React.FC<MinimalHomeViewProps> = ({
                 </h2>
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-emerald-100 text-emerald-800 shrink-0 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  สแกนตรวจได้ทุกวิชา • ออโต้
+                  ยืนยันสีเขียวแล้วกดถ่าย • ตรวจทันที
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1 truncate">
-                สแกนได้ทุกวิชาและทุกระดับชั้น • จับกระดาษคำตอบเขียว-แดงแม่นยำระดับมืออาชีพ
+                สแกนได้ทุกวิชา • ยืนยันระยะและแสงสีเขียวก่อนกดถ่าย แสดงผลคะแนนทันทีแม่นยำระดับมืออาชีพ
               </p>
             </div>
           </div>

@@ -602,8 +602,8 @@ export const omrScannerEngine = {
       return {
         isReady: true,
         statusColor: 'green',
-        statusTitle: 'คมชัดพร้อมตรวจ (ครบ 4 มุม)',
-        statusMessage: 'จัดวางตรงกรอบ 13 × 20 ซม. สมบูรณ์ กำลังตรวจอัตโนมัติ...',
+        statusTitle: 'ระยะและแสงสมบูรณ์แบบ (ครบ 4 มุม)',
+        statusMessage: 'จัดวางตรงกรอบ 13 × 20 ซม. คมชัดสมบูรณ์ • กดปุ่มถ่ายเพื่อตรวจคะแนนทันที',
         hasAllCorners: true,
         cornersFound: 4,
         detectedCorners: { topLeft: tlNorm, topRight: trNorm, bottomLeft: blNorm, bottomRight: brNorm },

@@ -28,6 +28,7 @@ import {
   ListOrdered,
   Check,
   AlertTriangle,
+  Lock,
 } from 'lucide-react';
 
 interface ScannerModalProps {
@@ -87,11 +88,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   // Sensitivity (Default 0.26 for optimal pencil & pen cross-mark detection)
   const [sensitivity, setSensitivity] = useState(0.26);
   const [showSensitivitySlider, setShowSensitivitySlider] = useState(false);
-  // Auto-scan is enabled by default so the user does NOT need to press shutter button
-  const [autoScanEnabled, setAutoScanEnabled] = useState(true);
+  // Default to false: user explicitly presses the shutter button after validating green frame
+  const [autoScanEnabled, setAutoScanEnabled] = useState(false);
 
   // State to toggle detailed question-by-question answer key breakdown
   const [showAnswersList, setShowAnswersList] = useState(true);
+
+  // Camera shutter snap flash animation state
+  const [isShutterFlashing, setIsShutterFlashing] = useState(false);
 
   // Real-time camera quality & 4 corner fiducials detection state (Green vs Red)
   const [frameQuality, setFrameQuality] = useState<FrameQualityEvaluation | null>(null);
@@ -105,6 +109,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   const lastAutoTriggerTimeRef = useRef(0);
   const consecutiveGreenFramesRef = useRef(0);
   const matchedExamRef = useRef<Exam | null>(initialExam || null);
+  const prevGreenRef = useRef(false);
 
   // Load fresh exams list
   useEffect(() => {
@@ -143,6 +148,91 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
       osc.start();
       osc.stop(ctx.currentTime + 0.12);
+    } catch {}
+  };
+
+  // Ultra-crisp camera shutter sound (dual mechanical clicks via AudioContext)
+  const playShutterSound = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+
+      // Click 1: Mirror lift
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.type = 'triangle';
+      osc1.frequency.setValueAtTime(320, ctx.currentTime);
+      osc1.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.04);
+      gain1.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.045);
+      osc1.start();
+      osc1.stop(ctx.currentTime + 0.045);
+
+      // Click 2: Curtain snap
+      setTimeout(() => {
+        try {
+          const osc2 = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.connect(gain2);
+          gain2.connect(ctx.destination);
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(1400, ctx.currentTime);
+          osc2.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.06);
+          gain2.gain.setValueAtTime(0.2, ctx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.065);
+          osc2.start();
+          osc2.stop(ctx.currentTime + 0.065);
+        } catch {}
+      }, 45);
+    } catch {}
+  };
+
+  // Subtle ready chime when frame turns from red to green
+  const playReadySound = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime); // E5
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.09); // A5
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch {}
+  };
+
+  // Pleasant score evaluation result chime
+  const playResultChime = (passed: boolean) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const notes = passed ? [523.25, 659.25, 783.99, 1046.5] : [440, 392, 349.23];
+      notes.forEach((freq, idx) => {
+        setTimeout(() => {
+          try {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, ctx.currentTime);
+            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.16);
+          } catch {}
+        }, idx * 65);
+      });
     } catch {}
   };
 
@@ -269,6 +359,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
             const quality = omrScannerEngine.evaluateFrameQuality(vid);
             setFrameQuality(quality);
 
+            // Audio & Haptic indicator when transitioning into GREEN (Ready) state
+            const isGreenNow = quality.isReady && quality.statusColor === 'green';
+            if (isGreenNow && !prevGreenRef.current) {
+              playReadySound();
+              if (navigator.vibrate) navigator.vibrate(25);
+            }
+            prevGreenRef.current = isGreenNow;
+
             // 2. Read QR Code for exam detection & answer key versioning
             const qrInfo = await omrScannerEngine.readQRCodeFast(vid);
             let currentTargetExam = activeExam || matchedExamRef.current;
@@ -383,6 +481,9 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       isProcessingRef.current = true;
       isScanningRef.current = true;
 
+      // Snappy non-blocking UI: yield 10ms to let the shutter flash render smoothly
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
       // 1. If activeExam is not selected yet, scan image for embedded QR code first!
       let targetExam = overrideExam || activeExam || matchedExamRef.current;
       if (!targetExam) {
@@ -421,12 +522,11 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       });
 
       if (!result.success) {
-        // If in auto-scan mode and corners were not fully in view yet, give clear guidance without stopping
-        setQrDetectedNotice('กำลังจัดมุมกระดาษ... ให้เห็นจุดมาร์กมุมดำครบทั้ง 4 มุม');
+        error('ตรวจกระดาษคำตอบไม่สำเร็จ', result.errorMessage || 'กรุณาจัดให้เห็นมุมครบทั้ง 4 มุมในกรอบ 13×20 ซม. แล้วถ่ายใหม่อีกครั้ง');
         return;
       }
 
-      // 3. Set scan output
+      // 3. Set scan output immediately
       setScanOutput({
         score: result.score,
         total: result.totalQuestions,
@@ -440,18 +540,21 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         detectedQrExamTitle: targetExam.title,
       });
 
+      // Play score sound
+      playResultChime(result.passed);
+
       // Play success feedback
       if (result.passed) {
         confetti({
-          particleCount: 40,
+          particleCount: 45,
           spread: 55,
           origin: { y: 0.6 },
         });
       }
 
       success(
-        `ตรวจข้อสอบเสร็จสิ้น: ${result.score}/${result.totalQuestions} คะแนน`,
-        `${targetExam.title} • คิดเป็น ${result.scorePercentage}% (${result.passed ? 'ผ่าน' : 'ไม่ผ่าน'})`
+        `ตรวจเสร็จทันที: ได้ ${result.score}/${result.totalQuestions} คะแนน (${result.scorePercentage}%)`,
+        `${targetExam.title} • ${result.passed ? 'ผ่านเกณฑ์' : 'ไม่ผ่าน'}`
       );
     } catch (err: any) {
       console.error('Scan processing error', err);
@@ -465,20 +568,39 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
   /**
    * Capture from video stream and scan
+   * Strictly verifies Green frame quality (distance, lighting, 4 corners) before capturing
    */
-  const handleCaptureFromCamera = () => {
-    if (!videoRef.current || !cameraActive) return;
+  const handleCaptureFromCamera = async (force: boolean = false) => {
+    if (!videoRef.current || !cameraActive || isProcessingRef.current) return;
     const video = videoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+    const isFrameGreen = !!(frameQuality?.isReady && frameQuality?.statusColor === 'green');
+
+    // Strict validation: must confirm perfect lighting, distance, and 4 corners in green before capture
+    if (!isFrameGreen && !force) {
+      if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+      error(
+        'ยังไม่สามารถกดถ่ายได้',
+        frameQuality?.statusMessage || 'กรุณาจัดให้เห็นมุมครบทั้ง 4 มุมในกรอบ 13×20 ซม. และแถบเป็นสีเขียวก่อนถ่าย เพื่อความแม่นยำระดับมืออาชีพ'
+      );
+      return;
+    }
+
+    // Instant realistic shutter feedback: Flash + Sound + Haptics
+    setIsShutterFlashing(true);
+    playShutterSound();
+    if (navigator.vibrate) navigator.vibrate([40, 25, 40]);
+    setTimeout(() => setIsShutterFlashing(false), 120);
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    handleProcessImage(canvas);
+    await handleProcessImage(canvas);
   };
 
   /**
@@ -730,6 +852,11 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
       {/* 2. Main Viewport Area (Mobile Portrait Viewfinder) */}
       <main className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
+        {/* Instant White Camera Shutter Flash Effect */}
+        {isShutterFlashing && (
+          <div className="absolute inset-0 bg-white z-50 pointer-events-none transition-opacity duration-100 opacity-90 animate-out fade-out" />
+        )}
+
         {/* Live Camera Video (Strictly vertical & portrait responsive) */}
         <video
           ref={videoRef}
@@ -1033,48 +1160,68 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           <div className="absolute inset-0 z-30 bg-slate-950/95 overflow-y-auto flex flex-col p-4 sm:p-6 text-white animate-in fade-in slide-in-from-bottom duration-200">
             <div className="max-w-md w-full mx-auto space-y-4 my-auto">
               {/* Result Header Badge */}
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 flex items-center justify-between gap-4 shadow-xl">
-                <div>
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 flex flex-col gap-3 shadow-xl">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400 font-medium">ผลการตรวจ OMR</span>
+                    <span className="text-xs text-slate-400 font-medium">ผลตรวจ OMR แม่นยำระดับมืออาชีพ</span>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
                         scanOutput.passed
                           ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                           : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                       }`}
                     >
-                      {scanOutput.passed ? 'ผ่านเกณฑ์' : 'ไม่ผ่าน'}
+                      {scanOutput.passed ? '✓ ผ่านเกณฑ์' : '✗ ไม่ผ่าน'}
                     </span>
                   </div>
-                  <h3 className="font-heading font-black text-xl text-white mt-1">
+
+                  <div
+                    className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center border-2 shrink-0 ${
+                      scanOutput.passed
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                        : 'border-rose-500 bg-rose-500/10 text-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.2)]'
+                    }`}
+                  >
+                    <span className="font-heading font-black text-xl sm:text-2xl leading-none">
+                      {scanOutput.score}
+                    </span>
+                    <span className="text-[10px] font-mono opacity-80 mt-0.5">
+                      /{scanOutput.total}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-heading font-black text-lg sm:text-xl text-white">
                     {activeExam?.title || 'กระดาษคำตอบ'}
                   </h3>
                   {activeExam?.gradeLevel && (
-                    <span className="inline-block text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-md mt-1">
+                    <span className="inline-block text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-0.5 rounded-md mt-1">
                       {activeExam.gradeLevel}
                     </span>
                   )}
-                  <p className="text-xs text-slate-400 mt-1">
-                    ตอบถูก <strong className="text-white font-bold">{scanOutput.score}</strong> จาก{' '}
-                    {scanOutput.total} ข้อ ({scanOutput.pct}%)
-                  </p>
+                  {/* Hero Score Display: "ได้ X จากทั้งหมด Y ข้อ (Z%)" */}
+                  <div className="mt-2 p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+                    <div className="text-base sm:text-lg font-heading font-extrabold text-white">
+                      ได้ <span className="text-emerald-400 text-xl sm:text-2xl font-black">{scanOutput.score}</span> จากทั้งหมด <span className="font-mono">{scanOutput.total}</span> ข้อ ({scanOutput.pct}%)
+                    </div>
+                  </div>
                 </div>
 
-                {/* Circular Score Badge */}
-                <div
-                  className={`w-16 h-16 sm:w-18 sm:h-18 rounded-2xl flex flex-col items-center justify-center border-2 shrink-0 ${
-                    scanOutput.passed
-                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                      : 'border-rose-500 bg-rose-500/10 text-rose-400'
-                  }`}
-                >
-                  <span className="font-heading font-black text-xl sm:text-2xl leading-none">
-                    {scanOutput.score}
-                  </span>
-                  <span className="text-[10px] font-mono opacity-80 mt-0.5">
-                    /{scanOutput.total}
-                  </span>
+                {/* 3 Quick Metrics Cards */}
+                <div className="grid grid-cols-3 gap-2 text-center pt-0.5">
+                  <div className="bg-slate-950/80 p-2 rounded-xl border border-emerald-500/30">
+                    <div className="text-[10px] text-slate-400">ตอบถูก</div>
+                    <div className="font-mono font-bold text-emerald-400 text-sm">{scanOutput.score} ข้อ</div>
+                  </div>
+                  <div className="bg-slate-950/80 p-2 rounded-xl border border-rose-500/30">
+                    <div className="text-[10px] text-slate-400">ตอบผิด</div>
+                    <div className="font-mono font-bold text-rose-400 text-sm">{scanOutput.total - scanOutput.score} ข้อ</div>
+                  </div>
+                  <div className="bg-slate-950/80 p-2 rounded-xl border border-indigo-500/30">
+                    <div className="text-[10px] text-slate-400">คิดเป็น</div>
+                    <div className="font-mono font-bold text-indigo-300 text-sm">{scanOutput.pct}%</div>
+                  </div>
                 </div>
               </div>
 
@@ -1215,30 +1362,59 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
       {/* 4. Bottom Action Bar (Shutter / Trigger on Mobile) */}
       {!scanOutput && (
-        <footer className="h-20 sm:h-24 bg-slate-950/90 backdrop-blur-md border-t border-slate-800/80 px-4 flex items-center justify-between gap-4 shrink-0 z-40 text-white max-w-lg mx-auto w-full">
+        <footer className="h-24 sm:h-28 bg-slate-950/95 backdrop-blur-md border-t border-slate-800/80 px-4 flex items-center justify-between gap-3 shrink-0 z-40 text-white max-w-lg mx-auto w-full">
           {/* Left: Gallery Upload */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="flex flex-col items-center justify-center gap-1 p-2 text-slate-400 hover:text-white transition-colors cursor-pointer w-16"
+            title="เลือกรูปภาพจากเครื่อง"
           >
             <Upload className="w-5 h-5" />
             <span className="text-[10px]">คลังภาพ</span>
           </button>
 
-          {/* Center: Big Mobile Shutter Button */}
-          <div className="flex flex-col items-center">
-            <button
-              type="button"
-              onClick={handleCaptureFromCamera}
-              disabled={isProcessing || !cameraActive}
-              className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 disabled:opacity-50 text-white shadow-xl shadow-emerald-900/50 flex items-center justify-center border-4 border-slate-900 cursor-pointer transition-all"
-            >
-              <Camera className="w-7 h-7 sm:w-8 sm:h-8" />
-            </button>
-            <span className="text-[10px] text-slate-300 mt-1 font-semibold text-center">
-              {autoScanEnabled ? 'ตรวจอัตโนมัติ (แตะเพื่อถ่ายเอง)' : 'กดสแกนตรวจ'}
-            </span>
+          {/* Center: Big Mobile Shutter Button with Real-time Green Validation Gate */}
+          <div className="flex flex-col items-center flex-1 max-w-[260px]">
+            {frameQuality?.isReady && frameQuality?.statusColor === 'green' ? (
+              // Green State: Unlocked, glowing, animated, ready to capture
+              <button
+                type="button"
+                onClick={() => handleCaptureFromCamera(false)}
+                disabled={isProcessing || !cameraActive}
+                className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-400 hover:from-emerald-500 hover:to-teal-300 active:scale-95 text-white shadow-xl shadow-emerald-950/80 ring-4 ring-emerald-400/80 border-4 border-slate-950 flex items-center justify-center cursor-pointer transition-all animate-pulse"
+                title="ระยะและแสงสมบูรณ์แบบ • กดถ่ายตรวจคะแนนทันที"
+              >
+                <Camera className="w-8 h-8 text-white drop-shadow-md" />
+              </button>
+            ) : (
+              // Red/Not Ready State: Locked, displays lock badge, informs user to align frame to green
+              <button
+                type="button"
+                onClick={() => handleCaptureFromCamera(false)}
+                disabled={isProcessing || !cameraActive}
+                className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-slate-900 border-4 border-slate-800 text-slate-500 shadow-inner flex flex-col items-center justify-center transition-all cursor-not-allowed group relative active:scale-95"
+                title="กรุณาจัดระยะและแสงให้เป็นสีเขียวก่อนถ่าย"
+              >
+                <Lock className="w-5 h-5 text-rose-400 group-hover:scale-110 transition-transform mb-0.5" />
+                <span className="text-[8px] font-bold text-rose-300 uppercase tracking-tighter">ล็อก</span>
+              </button>
+            )}
+
+            {/* Real-time Status Caption below shutter button */}
+            <div className="mt-1 text-center">
+              {frameQuality?.isReady && frameQuality?.statusColor === 'green' ? (
+                <div className="text-[11px] text-emerald-300 font-bold flex items-center gap-1 justify-center animate-bounce">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>สมบูรณ์แบบ! กดถ่ายตรวจทันที</span>
+                </div>
+              ) : (
+                <div className="text-[10px] text-rose-300/90 font-medium flex items-center gap-1 justify-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping inline-block" />
+                  <span>รอสีเขียวก่อนถ่าย (จัด 4 มุม / แสง / ระยะ)</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right: Sensitivity Settings */}
